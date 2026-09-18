@@ -72,6 +72,28 @@
       background: #FFF8FA;
       transform: translateY(-1px);
     }
+    .quick-size {
+      border: 2px solid #FFD9E1;
+      background: #FFFDFD;
+      color: #8A6470;
+      border-radius: 999px;
+      padding: .28rem .68rem;
+      font-size: .75rem;
+      font-weight: 700;
+      line-height: 1;
+      transition: all .16s ease;
+    }
+    .quick-size:hover {
+      border-color: #FFB3C5;
+      color: #7A3C50;
+      transform: translateY(-1px);
+    }
+    .quick-size.active {
+      border-color: #FF9FB4;
+      background: linear-gradient(135deg, #FFE7EC, #EAF4FF);
+      color: #7A3C50;
+      box-shadow: 0 5px 12px -8px rgba(255, 126, 157, .8);
+    }
     .cute-progress {
       background: rgba(93, 54, 65, .4);
     }
@@ -125,6 +147,15 @@
     <section id="controls" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4 cute-card p-6">
       <label class="block">
         <span class="text-sm font-bold cute-title">宽度（豆）</span>
+        <div id="quick-sizes" class="mt-2 mb-3 flex flex-wrap gap-2">
+          <button type="button" class="quick-size" data-width="16">16</button>
+          <button type="button" class="quick-size" data-width="24">24</button>
+          <button type="button" class="quick-size" data-width="32">32</button>
+          <button type="button" class="quick-size active" data-width="48">48</button>
+          <button type="button" class="quick-size" data-width="64">64</button>
+          <button type="button" class="quick-size" data-width="96">96</button>
+          <button type="button" class="quick-size" data-width="128">128</button>
+        </div>
         <input id="width" type="range" min="10" max="160" value="48" class="w-full accent-sky-500">
         <span id="width-label" class="text-xs text-slate-500">48</span>
         <span id="grid-size-info" class="mt-1 block text-xs text-slate-500">未加载图片</span>
@@ -213,6 +244,7 @@
     const paletteList = document.getElementById('palette-list');
     const progress = document.getElementById('progress');
     const saveToast = document.getElementById('save-toast');
+    const quickSizes = document.getElementById('quick-sizes');
 
     let currentImage = null;
     let currentAssignments = [];
@@ -562,7 +594,22 @@
     });
     widthInput.addEventListener('input', () => {
       widthLabel.textContent = widthInput.value;
+      quickSizes.querySelectorAll('.quick-size').forEach(button => {
+        button.classList.toggle('active', Number(button.dataset.width) === Number(widthInput.value));
+      });
       regenerate(false);
+    });
+
+    quickSizes.addEventListener('click', event => {
+      const button = event.target.closest('.quick-size');
+      if (!button) return;
+      const width = Number(button.dataset.width);
+      widthInput.value = width;
+      widthLabel.textContent = width;
+      quickSizes.querySelectorAll('.quick-size').forEach(item => {
+        item.classList.toggle('active', item === button);
+      });
+      regenerate();
     });
     [brandSelect, paletteLimitSelect, quantModeSelect].forEach(el =>
       el.addEventListener('change', () => regenerate())
