@@ -194,6 +194,10 @@
           <span class="text-sm font-bold cute-text">照片模式（保留细节）</span>
         </label>
         <label class="flex items-center gap-2">
+          <input id="dither" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">抖动（渐变过渡）</span>
+        </label>
+        <label class="flex items-center gap-2">
           <input id="cartoon" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">卡通合并（减少颜色）</span>
         </label>
@@ -243,6 +247,7 @@
     const cartoonInput = document.getElementById('cartoon');
     const photoModeInput = document.getElementById('photo-mode');
     const cleanModeInput = document.getElementById('clean-mode');
+    const ditherInput = document.getElementById('dither');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
     const canvas = document.getElementById('canvas');
@@ -389,7 +394,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false) {
+    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false, dither = false) {
       const brand = BRANDS[brandId];
       const d = imgData.data;
       const opaque = [];
@@ -467,16 +472,79 @@
         return best;
       };
 
-      for (let i = 0; i < indices.length; i++) {
-        const rgb = opaque[i];
-        const best = nearestPaletteBead(oklabFromRgb(rgb));
-        assignments[indices[i]] = best.bead.id;
+      if (!dither) {
+        for (let i = 0; i < indices.length; i++) {
+          const rgb = opaque[i];
+          const best = nearestPaletteBead(oklabFromRgb(rgb));
+          assignments[indices[i]] = best.bead.id;
+        }
+      } else {
+        const err = new Float32Array(imgData.width * imgData.height * 3);
+        for (let y = 0; y < imgData.height; y++) {
+          for (let x = 0; x < imgData.width; x++) {
+            const p = y * imgData.width + x;
+            const i = p * 4;
+            if (transparentPixel(d, i)) continue;
+            const target = oklabFromRgb([d[i], d[i+1], d[i+2]]).slice();
+            const eIndex = p * 3;
+            target[0] += err[eIndex];
+            target[1] += err[eIndex + 1];
+            target[2] += err[eIndex + 2];
+            const best = nearestPaletteBead(target);
+            assignments[p] = best.bead.id;
+            const chosen = oklabFromRgb(best.bead.rgb);
+            const e = [target[0] - chosen[0], target[1] - chosen[1], target[2] - chosen[2]];
+            const spread = (nx, ny, factor) => {
+              if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
+              const np = ny * imgData.width + nx;
+              const ne = np * 3;
+              err[ne] += e[0] * factor;
+              err[ne + 1] += e[1] * factor;
+              err[ne + 2] += e[2] * factor;
+            };
+            spread(x + 1, y, 7 / 16);
+            spread(x - 1, y + 1, 3 / 16);
+            spread(x, y + 1, 5 / 16);
+            spread(x + 1, y + 1, 1 / 16);
+          }
+        }
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode ? 35 : cleanMode ? 100 : 0);
-      if (photoMode || cleanMode) {
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode && !dither ? 35 : cleanMode && !dither ? 100 : 0);
+      if ((photoMode || cleanMode) && !dither) {
         smoothScatteredPixels(assignments, imgData.width, imgData.height, cleanMode ? 2 : 1);
       }
       return { palette: palette.map(p => p.bead), assignments };
+    }
+
+    function applyEdgeEnhancement(imgData) {
+      const { width, height, data } = imgData;
+      const output = new Uint8ClampedArray(data);
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const index = (y * width + x) * 4;
+          if (data[index + 3] < 32) continue;
+          const left = (y * width + Math.max(0, x - 1)) * 4;
+          const right = (y * width + Math.min(width - 1, x + 1)) * 4;
+          const top = (Math.max(0, y - 1) * width + x) * 4;
+          const bottom = (Math.min(height - 1, y + 1) * width + x) * 4;
+          let contrast = 0;
+          for (let channel = 0; channel < 3; channel++) {
+            contrast = Math.max(
+              contrast,
+              Math.abs(data[index + channel] - data[left + channel]),
+              Math.abs(data[index + channel] - data[right + channel]),
+              Math.abs(data[index + channel] - data[top + channel]),
+              Math.abs(data[index + channel] - data[bottom + channel])
+            );
+          }
+          if (contrast < 72) continue;
+          const weight = Math.min(0.18, (contrast - 72) / 360);
+          for (let channel = 0; channel < 3; channel++) {
+            output[index + channel] = data[index + channel] * (1 - weight);
+          }
+        }
+      }
+      return new ImageData(output, width, height);
     }
 
     function smoothScatteredPixels(assignments, gridWidth, gridHeight, passes) {
@@ -658,12 +726,13 @@
       const gridWidth = Number(widthInput.value);
       widthLabel.textContent = gridWidth;
       const photoMode = photoModeInput.checked;
-      const imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
+      let imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
+      imgData = applyEdgeEnhancement(imgData);
       const gridHeight = imgData.height;
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked);
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked, ditherInput.checked);
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -721,7 +790,7 @@
       el.addEventListener('change', () => regenerate())
     );
     cartoonInput.addEventListener('change', () => regenerate(true));
-    [photoModeInput, cleanModeInput].forEach(el =>
+    [photoModeInput, cleanModeInput, ditherInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
