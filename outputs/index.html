@@ -184,6 +184,12 @@
           <option value="color">彩色</option>
         </select>
       </label>
+      <label class="block">
+        <span class="text-sm font-bold cute-title">杂色清理</span>
+        <input id="cleanup" type="range" min="0" max="100" value="35" class="w-full accent-sky-500 mt-3">
+        <span id="cleanup-label" class="mt-1 block text-xs text-slate-500">35 · 适中</span>
+        <span class="mt-1 block text-xs text-slate-500">低：保留细节；高：色块干净</span>
+      </label>
       <div class="md:col-span-4 flex flex-wrap items-center gap-6">
         <label class="flex items-center gap-2">
           <input id="show-codes" type="checkbox" class="cute-check">
@@ -238,6 +244,8 @@
     const showCodesInput = document.getElementById('show-codes');
     const ditherInput = document.getElementById('dither');
     const cartoonInput = document.getElementById('cartoon');
+    const cleanupInput = document.getElementById('cleanup');
+    const cleanupLabel = document.getElementById('cleanup-label');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
     const canvas = document.getElementById('canvas');
@@ -295,14 +303,55 @@
 
     function fitImageToGrid(img, gridWidth) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
-      const off = document.createElement('canvas');
-      off.width = gridWidth;
-      off.height = gridHeight;
-      const ctx = off.getContext('2d', { willReadFrequently: true });
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, 0, 0, gridWidth, gridHeight);
-      return ctx.getImageData(0, 0, gridWidth, gridHeight);
+      const sampleFactor = 4;
+      const sampleWidth = gridWidth * sampleFactor;
+      const sampleHeight = gridHeight * sampleFactor;
+      const sampler = document.createElement('canvas');
+      sampler.width = sampleWidth;
+      sampler.height = sampleHeight;
+      const sampleCtx = sampler.getContext('2d', { willReadFrequently: true });
+      sampleCtx.imageSmoothingEnabled = true;
+      sampleCtx.imageSmoothingQuality = 'high';
+      sampleCtx.drawImage(img, 0, 0, sampleWidth, sampleHeight);
+      const sampled = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight);
+
+      const result = new ImageData(gridWidth, gridHeight);
+      const buckets = Array.from({ length: gridWidth * gridHeight }, () => new Map());
+      for (let sy = 0; sy < sampleHeight; sy++) {
+        const gy = Math.floor(sy / sampleFactor);
+        for (let sx = 0; sx < sampleWidth; sx++) {
+          const si = (sy * sampleWidth + sx) * 4;
+          if (sampled.data[si + 3] < 128) continue;
+          const gx = Math.floor(sx / sampleFactor);
+          const r = sampled.data[si];
+          const g = sampled.data[si + 1];
+          const b = sampled.data[si + 2];
+          const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+          const cellBuckets = buckets[gy * gridWidth + gx];
+          if (!cellBuckets.has(key)) {
+            cellBuckets.set(key, { count: 0, r: 0, g: 0, b: 0 });
+          }
+          const bucket = cellBuckets.get(key);
+          bucket.count++;
+          bucket.r += r;
+          bucket.g += g;
+          bucket.b += b;
+        }
+      }
+
+      for (let p = 0; p < gridWidth * gridHeight; p++) {
+        let bestBucket = null;
+        for (const bucket of buckets[p].values()) {
+          if (!bestBucket || bucket.count > bestBucket.count) bestBucket = bucket;
+        }
+        if (!bestBucket) continue;
+        const di = p * 4;
+        result.data[di] = Math.round(bestBucket.r / bestBucket.count);
+        result.data[di + 1] = Math.round(bestBucket.g / bestBucket.count);
+        result.data[di + 2] = Math.round(bestBucket.b / bestBucket.count);
+        result.data[di + 3] = 255;
+      }
+      return result;
     }
 
     function transparentPixel(d, i) {
@@ -342,7 +391,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, dither = false, cartoon = false) {
+    function buildPalette(imgData, brandId, limit, mode, dither = false, cartoon = false, cleanupStrength = 0) {
       const brand = BRANDS[brandId];
       const d = imgData.data;
       const opaque = [];
@@ -457,7 +506,63 @@
           }
         }
       }
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, cleanupStrength);
       return { palette: palette.map(p => p.bead), assignments };
+    }
+
+    function cleanupIsolatedRegions(assignments, gridWidth, gridHeight, strength) {
+      if (strength <= 0) return assignments;
+      const maxArea = Math.max(1, Math.round((strength / 100) * 12));
+      const colorThreshold = 0.03 + (strength / 100) * 0.08;
+      const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const visited = new Uint8Array(gridWidth * gridHeight);
+
+      for (let start = 0; start < assignments.length; start++) {
+        if (visited[start] || !assignments[start]) continue;
+        const colorId = assignments[start];
+        const cells = [start];
+        const contact = new Map();
+        visited[start] = 1;
+
+        for (let cursor = 0; cursor < cells.length; cursor++) {
+          const index = cells[cursor];
+          const x = index % gridWidth;
+          const y = Math.floor(index / gridWidth);
+          for (const [dx, dy] of directions) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight) continue;
+            const neighbor = ny * gridWidth + nx;
+            if (assignments[neighbor] === colorId) {
+              if (!visited[neighbor]) {
+                visited[neighbor] = 1;
+                cells.push(neighbor);
+              }
+            } else if (assignments[neighbor]) {
+              contact.set(assignments[neighbor], (contact.get(assignments[neighbor]) || 0) + 1);
+            }
+          }
+        }
+
+        if (cells.length > maxArea || !contact.size) continue;
+        let targetId = null;
+        let bestScore = -Infinity;
+        const sourceColor = oklabFromRgb(paletteById[colorId].rgb);
+        for (const [candidateId, count] of contact.entries()) {
+          const distance = colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[candidateId].rgb));
+          const score = count - distance * 24;
+          if (score > bestScore) {
+            bestScore = score;
+            targetId = candidateId;
+          }
+        }
+
+        const canMerge = strength >= 80 || colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
+        if (canMerge) {
+          for (const index of cells) assignments[index] = targetId;
+        }
+      }
+      return assignments;
     }
 
     function countBeads(assignments, gridWidth, gridHeight) {
@@ -557,7 +662,7 @@
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, ditherInput.checked, cartoonInput.checked);
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, ditherInput.checked, cartoonInput.checked, Number(cleanupInput.value));
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -597,6 +702,11 @@
       quickSizes.querySelectorAll('.quick-size').forEach(button => {
         button.classList.toggle('active', Number(button.dataset.width) === Number(widthInput.value));
       });
+      regenerate(false);
+    });
+
+    cleanupInput.addEventListener('input', () => {
+      cleanupLabel.textContent = `${cleanupInput.value} · ${cleanupInput.value < 25 ? '保留细节' : cleanupInput.value < 65 ? '适中' : '色块干净'}`;
       regenerate(false);
     });
 
