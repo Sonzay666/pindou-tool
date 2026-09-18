@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>拼豆图转换器</title>
+  <script src="tailwind.js"></script>
+  <script src="brands.js"></script>
+  <style>
+    .tile { image-rendering: pixelated; }
+    body {
+      font-family: "Baloo 2", "M PLUS Rounded 1c", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      background-color: #FFF6F8;
+      background-image:
+        radial-gradient(circle at 15% 20%, rgba(255, 199, 209, .42) 0, transparent 28%),
+        radial-gradient(circle at 85% 18%, rgba(199, 224, 255, .46) 0, transparent 30%),
+        radial-gradient(circle at 70% 88%, rgba(255, 234, 187, .5) 0, transparent 30%);
+      background-attachment: fixed;
+    }
+    .cute-card {
+      background: rgba(255, 255, 255, .92);
+      border: 1px solid rgba(255, 214, 222, .95);
+      border-radius: 1.5rem;
+      box-shadow: 0 12px 28px -18px rgba(244, 114, 142, .5), 0 2px 0 rgba(255, 255, 255, .7) inset;
+    }
+    .cute-title {
+      color: #7A3C50;
+      text-shadow: 0 2px 0 #FFF;
+    }
+    .cute-text { color: #8A6470; }
+    .cute-button {
+      border-radius: 999px;
+      border: 0;
+      padding: .55rem 1rem;
+      font-weight: 700;
+      color: #FFF;
+      box-shadow: 0 6px 14px -8px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.35) inset;
+      transition: transform .16s ease, filter .16s ease;
+    }
+    .cute-button:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    .cute-button:active { transform: translateY(1px); }
+    .cute-button-primary { background: linear-gradient(135deg, #FF7E9D, #FF9F7E); }
+    .cute-button-secondary { background: linear-gradient(135deg, #7CA6FF, #8ED1FF); }
+    .cute-input {
+      border: 2px solid #FFD9E1;
+      border-radius: .8rem;
+      background-color: #FFFDFD;
+      color: #6C4652;
+      padding: .45rem .6rem;
+      box-shadow: 0 2px 8px -6px rgba(255,126,157,.6);
+    }
+    .cute-input:focus {
+      outline: none;
+      border-color: #FFB3C5;
+      box-shadow: 0 0 0 3px rgba(255, 179, 197, .24);
+    }
+    .cute-check { accent-color: #FF7E9D; width: 1.05rem; height: 1.05rem; }
+    .cute-swatch {
+      width: 2.1rem;
+      height: 2.1rem;
+      border-radius: .75rem;
+      border: 2px solid #FFE1E7;
+      box-shadow: 0 3px 8px -5px rgba(0,0,0,.45);
+    }
+    .cute-drop {
+      border: 3px dashed #FFC3D2;
+      background: linear-gradient(145deg, #FFF9FA, #FFF4F7);
+      transition: all .18s ease;
+    }
+    .cute-drop:hover {
+      border-color: #FF9FB4;
+      background: #FFF8FA;
+      transform: translateY(-1px);
+    }
+    .cute-progress {
+      background: rgba(93, 54, 65, .4);
+    }
+    .cute-pill {
+      background: #FFE7EC;
+      color: #855766;
+      border-radius: 999px;
+      padding: .2rem .6rem;
+      font-size: .75rem;
+      font-weight: 700;
+      display: inline-block;
+    }
+    .cute-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 2rem;
+      transform: translate(-50%, 120%);
+      z-index: 60;
+      padding: .7rem 1.2rem;
+      font-weight: 700;
+      color: #7A3C50;
+      background: rgba(255, 255, 255, .95);
+      border: 2px solid #FFC3D2;
+      border-radius: 999px;
+      box-shadow: 0 10px 24px -14px rgba(244, 114, 142, .7);
+      transition: transform .28s cubic-bezier(.2, .9, .3, 1.2);
+    }
+    .cute-toast.show { transform: translate(-50%, 0); }
+    .cute-toast.ok { border-color: #FFB3C5; }
+    .cute-toast.error { border-color: #FF8C8C; color: #A84A4A; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <main class="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <header class="text-center">
+      <div class="inline-flex items-center gap-3 cute-pill mb-2">MARD 291 色已内置</div>
+      <h1 class="text-4xl font-bold cute-title">拼豆图转换器</h1>
+      <p class="cute-text mt-2">导入图片，自动匹配主流拼豆色号，生成图纸和采购清单。</p>
+    </header>
+
+    <section id="input-area" class="cute-card cute-drop p-8 text-center cursor-pointer">
+      <p class="text-lg font-bold cute-title">点击或拖拽图片到这里</p>
+      <p class="text-xs cute-text mt-1">支持 JPG / PNG / WebP</p>
+      <input type="file" id="file" accept="image/*" class="hidden">
+    </section>
+
+    <section id="controls" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4 cute-card p-6">
+      <label class="block">
+        <span class="text-sm font-bold cute-title">宽度（豆）</span>
+        <input id="width" type="range" min="10" max="160" value="48" class="w-full accent-sky-500">
+        <span id="width-label" class="text-xs text-slate-500">48</span>
+        <span id="grid-size-info" class="mt-1 block text-xs text-slate-500">未加载图片</span>
+      </label>
+      <label class="block">
+        <span class="text-sm font-bold cute-title">颜色品牌</span>
+        <select id="brand" class="w-full cute-input text-sm"></select>
+      </label>
+      <label class="block">
+        <span class="text-sm font-bold cute-title">颜色数量上限</span>
+        <select id="palette-limit" class="w-full cute-input text-sm">
+          <option value="0">不限制</option>
+          <option>8</option>
+          <option>12</option>
+          <option>16</option>
+          <option>24</option>
+          <option selected>32</option>
+          <option>48</option>
+        </select>
+      </label>
+      <label class="block">
+        <span class="text-sm font-bold cute-title">颜色数量</span>
+        <select id="quant-mode" class="w-full cute-input text-sm">
+          <option value="auto">自动</option>
+          <option value="black-white">黑白</option>
+          <option value="color">彩色</option>
+        </select>
+      </label>
+      <div class="md:col-span-4 flex flex-wrap items-center gap-6">
+        <label class="flex items-center gap-2">
+          <input id="show-codes" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">图纸显示色号</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input id="dither" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">抖动（适合照片）</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input id="cartoon" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">卡通合并（减少颜色）</span>
+        </label>
+      </div>
+    </section>
+
+    <section id="result" class="hidden grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 cute-card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-lg cute-title">拼豆图纸</h2>
+          <div class="flex gap-2">
+            <button id="download-png" class="cute-button cute-button-primary text-sm">下载图纸 PNG</button>
+            <button id="download-csv" class="cute-button cute-button-secondary text-sm">下载豆数 CSV</button>
+          </div>
+        </div>
+        <div id="canvas-wrap" class="overflow-auto border border-[#FFE3E9] rounded-2xl bg-[#FFFBFC]">
+          <canvas id="canvas" class="max-w-full h-auto block"></canvas>
+        </div>
+      </div>
+      <aside class="cute-card p-4">
+        <h2 class="font-bold text-lg cute-title mb-3">豆数清单</h2>
+        <div id="palette-list" class="space-y-3 overflow-y-auto max-h-[70vh] pr-1"></div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="progress" class="fixed inset-0 cute-progress hidden items-center justify-center">
+    <div class="cute-card px-6 py-4 cute-title font-bold">正在匹配拼豆颜色…</div>
+  </div>
+  <div id="save-toast" class="cute-toast"></div>
+
+  <script>
+    const inputArea = document.getElementById('input-area');
+    const fileInput = document.getElementById('file');
+    const brandSelect = document.getElementById('brand');
+    const widthInput = document.getElementById('width');
+    const widthLabel = document.getElementById('width-label');
+    const gridSizeInfo = document.getElementById('grid-size-info');
+    const paletteLimitSelect = document.getElementById('palette-limit');
+    const quantModeSelect = document.getElementById('quant-mode');
+    const showCodesInput = document.getElementById('show-codes');
+    const ditherInput = document.getElementById('dither');
+    const cartoonInput = document.getElementById('cartoon');
+    const controls = document.getElementById('controls');
+    const result = document.getElementById('result');
+    const canvas = document.getElementById('canvas');
+    const paletteList = document.getElementById('palette-list');
+    const progress = document.getElementById('progress');
+    const saveToast = document.getElementById('save-toast');
+
+    let currentImage = null;
+    let currentAssignments = [];
+    let currentPalette = [];
+    let paletteById = {};
+    let currentGridWidth = 0;
+    let currentGridHeight = 0;
+
+    function populateBrands() {
+      brandSelect.innerHTML = '';
+      for (const [id, brand] of Object.entries(BRANDS)) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = brand.name;
+        brandSelect.appendChild(option);
+      }
+      brandSelect.value = 'mard';
+    }
+
+    function srgbToLinear(v) {
+      v /= 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    }
+
+    function rgbToOklab([r, g, b]) {
+      const R = srgbToLinear(r), G = srgbToLinear(g), B = srgbToLinear(b);
+      const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+      const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+      const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+      return [
+        0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+        1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+        0.0259040371*l + 0.7827717662*m - 0.8086757660*s,
+      ];
+    }
+
+    const oklabCache = new Map();
+    function oklabFromRgb(rgb) {
+      const key = rgb.join(',');
+      if (!oklabCache.has(key)) oklabCache.set(key, rgbToOklab(rgb));
+      return oklabCache.get(key);
+    }
+
+    function colorDistanceOklab(a, b) {
+      const dl = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
+      return dl*dl + da*da + db*db;
+    }
+
+    function fitImageToGrid(img, gridWidth) {
+      const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
+      const off = document.createElement('canvas');
+      off.width = gridWidth;
+      off.height = gridHeight;
+      const ctx = off.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, gridWidth, gridHeight);
+      return ctx.getImageData(0, 0, gridWidth, gridHeight);
+    }
+
+    function transparentPixel(d, i) {
+      return d[i + 3] < 32;
+    }
+
+    function kmeans(pixels, k, maxIter = 12) {
+      if (pixels.length === 0) return [];
+      k = Math.min(k, pixels.length);
+      const centers = [];
+      for (let i = 0; i < k; i++) {
+        const px = pixels[Math.floor(i * pixels.length / k)];
+        centers.push(px.slice());
+      }
+      let assignments = new Array(pixels.length).fill(0);
+      for (let iter = 0; iter < maxIter; iter++) {
+        const sums = Array.from({length: k}, () => [0,0,0,0]);
+        for (let i = 0; i < pixels.length; i++) {
+          let best = 0, bestDist = Infinity;
+          for (let c = 0; c < k; c++) {
+            const dr = pixels[i][0] - centers[c][0];
+            const dg = pixels[i][1] - centers[c][1];
+            const db = pixels[i][2] - centers[c][2];
+            const dist = dr*dr + dg*dg + db*db;
+            if (dist < bestDist) { bestDist = dist; best = c; }
+          }
+          assignments[i] = best;
+          for (let ch = 0; ch < 3; ch++) sums[best][ch] += pixels[i][ch];
+          sums[best][3]++;
+        }
+        for (let c = 0; c < k; c++) {
+          if (sums[c][3] > 0) {
+            for (let ch = 0; ch < 3; ch++) centers[c][ch] = sums[c][ch] / sums[c][3];
+          }
+        }
+      }
+      return { centers, assignments };
+    }
+
+    function buildPalette(imgData, brandId, limit, mode, dither = false, cartoon = false) {
+      const brand = BRANDS[brandId];
+      const d = imgData.data;
+      const opaque = [];
+      const indices = [];
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        if (!transparentPixel(d, i)) {
+          opaque.push([d[i], d[i+1], d[i+2]]);
+          indices.push(p);
+        }
+      }
+      if (!opaque.length) return { palette: [], assignments: [] };
+
+      const isMono = mode === 'black-white' || (
+        mode === 'auto' && opaque.every(([r,g,b]) => Math.max(r,g,b) - Math.min(r,g,b) < 18)
+      );
+      const target = isMono ? 2 : (limit > 0 ? limit : 48);
+      const km = kmeans(opaque, target);
+
+      let palette = km.centers.map((rgb, idx) => {
+        let best = null, bestDist = Infinity;
+        for (const bead of brand.colors) {
+          const dist = colorDistanceOklab(oklabFromRgb(rgb), oklabFromRgb(bead.rgb));
+          if (dist < bestDist) { bestDist = dist; best = bead; }
+        }
+        return { bead: best, kmIndex: idx, rgb };
+      });
+
+      const unique = new Map();
+      for (const item of palette) {
+        if (!unique.has(item.bead.id)) unique.set(item.bead.id, item);
+      }
+      palette = [...unique.values()];
+      if (cartoon) {
+        const minColors = Math.min(palette.length, Math.max(6, Math.round(limit > 0 ? limit * 0.5 : 12)));
+        const map = new Map();
+        const parent = new Map();
+        for (const item of palette) parent.set(item.bead.id, item.bead.id);
+        const find = (id) => {
+          let root = id;
+          while (parent.get(root) !== root) root = parent.get(root);
+          while (parent.get(id) !== root) {
+            const next = parent.get(id);
+            parent.set(id, root);
+            id = next;
+          }
+          return root;
+        };
+        const entries = [...palette].sort((a, b) => a.bead.id.localeCompare(b.bead.id));
+        for (let i = 0; i < entries.length; i++) {
+          for (let j = i + 1; j < entries.length; j++) {
+            const a = entries[i], b = entries[j];
+            if (find(a.bead.id) === find(b.bead.id)) continue;
+            const dist = colorDistanceOklab(oklabFromRgb(a.bead.rgb), oklabFromRgb(b.bead.rgb));
+            if (dist < 0.038 && map.size + palette.length - j > minColors) {
+              parent.set(find(a.bead.id), find(b.bead.id));
+            }
+          }
+        }
+        for (const item of palette) {
+          const rootId = find(item.bead.id);
+          if (!map.has(rootId)) map.set(rootId, item);
+          map.get(rootId).rgb = item.rgb;
+        }
+        palette = [...map.values()];
+      }
+      paletteById = Object.fromEntries(palette.map(p => [p.bead.id, p.bead]));
+
+      const assignments = new Array(indices.length);
+      const nearestPaletteBead = (oklab) => {
+        let best = null, bestDist = Infinity;
+        for (const item of palette) {
+          const dist = colorDistanceOklab(oklab, oklabFromRgb(item.bead.rgb));
+          if (dist < bestDist) { bestDist = dist; best = item; }
+        }
+        return best;
+      };
+
+      if (!dither) {
+        for (let i = 0; i < indices.length; i++) {
+          const rgb = opaque[i];
+          const best = nearestPaletteBead(oklabFromRgb(rgb));
+          assignments[indices[i]] = best.bead.id;
+        }
+      } else {
+        const err = new Float32Array(imgData.width * imgData.height * 3);
+        for (let y = 0; y < imgData.height; y++) {
+          for (let x = 0; x < imgData.width; x++) {
+            const p = y * imgData.width + x;
+            const i = p * 4;
+            if (transparentPixel(d, i)) continue;
+            const target = oklabFromRgb([d[i], d[i+1], d[i+2]]).slice();
+            const eIndex = p * 3;
+            target[0] += err[eIndex];
+            target[1] += err[eIndex + 1];
+            target[2] += err[eIndex + 2];
+            const best = nearestPaletteBead(target);
+            assignments[p] = best.bead.id;
+            const chosen = oklabFromRgb(best.bead.rgb);
+            const e = [target[0] - chosen[0], target[1] - chosen[1], target[2] - chosen[2]];
+            const spread = (nx, ny, factor) => {
+              if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
+              const np = ny * imgData.width + nx;
+              const ne = np * 3;
+              err[ne] += e[0] * factor;
+              err[ne + 1] += e[1] * factor;
+              err[ne + 2] += e[2] * factor;
+            };
+            spread(x + 1, y, 7 / 16);
+            spread(x - 1, y + 1, 3 / 16);
+            spread(x, y + 1, 5 / 16);
+            spread(x + 1, y + 1, 1 / 16);
+          }
+        }
+      }
+      return { palette: palette.map(p => p.bead), assignments };
+    }
+
+    function countBeads(assignments, gridWidth, gridHeight) {
+      const counts = {};
+      for (const id of assignments) if (id) counts[id] = (counts[id] || 0) + 1;
+      const rows = [];
+      for (const id of Object.keys(counts)) {
+        const bead = paletteById[id];
+        rows.push({ id, name: bead.name, rgb: bead.hex, count: counts[id] });
+      }
+      rows.sort((a,b) => b.count - a.count);
+      return rows;
+    }
+
+    function render(imgData, gridWidth, gridHeight, brandId) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cell = (showCodesInput.checked ? 22 : 16) * dpr;
+      canvas.width = gridWidth * cell;
+      canvas.height = gridHeight * cell;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < gridHeight; y++) {
+        for (let x = 0; x < gridWidth; x++) {
+          const p = y * gridWidth + x;
+          const i = p * 4;
+          const id = currentAssignments[p];
+          if (!id) continue;
+          const bead = paletteById[id];
+          ctx.fillStyle = bead.hex;
+          ctx.fillRect(x * cell, y * cell, cell, cell);
+        }
+      }
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= gridWidth; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * cell + .5, 0);
+        ctx.lineTo(x * cell + .5, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= gridHeight; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * cell + .5);
+        ctx.lineTo(canvas.width, y * cell + .5);
+        ctx.stroke();
+      }
+
+      if (showCodesInput.checked) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${Math.max(7, Math.round(cell * 0.32))}px Arial, sans-serif`;
+        for (let y = 0; y < gridHeight; y++) {
+          for (let x = 0; x < gridWidth; x++) {
+            const p = y * gridWidth + x;
+            const id = currentAssignments[p];
+            if (!id) continue;
+            const bead = paletteById[id];
+            const lum = bead.rgb[0] * 0.299 + bead.rgb[1] * 0.587 + bead.rgb[2] * 0.114;
+            ctx.fillStyle = lum > 160 ? '#111111' : '#ffffff';
+            ctx.fillText(bead.id, x * cell + cell / 2, y * cell + cell / 2);
+          }
+        }
+      }
+    }
+
+    function renderPaletteList(rows) {
+      paletteList.innerHTML = '';
+      for (const row of rows) {
+        const item = document.createElement('div');
+        item.className = 'flex items-center gap-3 bg-[#FFF8FA] border border-[#FFE3E9] rounded-2xl p-2';
+        const swatch = document.createElement('span');
+        swatch.className = 'cute-swatch shrink-0';
+        swatch.style.backgroundColor = row.rgb;
+        const text = document.createElement('div');
+        text.innerHTML = `<div class="text-sm font-bold cute-title">${row.id}</div>
+          <div class="text-xs cute-text">${row.name}</div>`;
+        const count = document.createElement('div');
+        count.className = 'ml-auto text-sm font-bold cute-text';
+        count.textContent = row.count;
+        item.append(swatch, text, count);
+        paletteList.appendChild(item);
+      }
+    }
+
+    async function regenerate(showProgress = true) {
+      if (!currentImage) return;
+      if (showProgress) {
+        progress.classList.remove('hidden');
+        progress.classList.add('flex');
+        await new Promise(r => setTimeout(r, 20));
+      }
+      const gridWidth = Number(widthInput.value);
+      widthLabel.textContent = gridWidth;
+      const imgData = fitImageToGrid(currentImage, gridWidth);
+      const gridHeight = imgData.height;
+      currentGridWidth = gridWidth;
+      currentGridHeight = gridHeight;
+      gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, ditherInput.checked, cartoonInput.checked);
+      currentAssignments = converted.assignments;
+      currentPalette = converted.palette;
+      currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
+      const rows = countBeads(currentAssignments, gridWidth, gridHeight);
+      render(imgData, gridWidth, gridHeight, brandSelect.value);
+      renderPaletteList(rows);
+      result.classList.remove('hidden');
+      controls.classList.remove('hidden');
+      if (showProgress) {
+        progress.classList.add('hidden');
+        progress.classList.remove('flex');
+      }
+    }
+
+    function loadImage(file) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        currentImage = img;
+        regenerate();
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    }
+
+    inputArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) loadImage(fileInput.files[0]);
+    });
+    inputArea.addEventListener('dragover', e => e.preventDefault());
+    inputArea.addEventListener('drop', e => {
+      e.preventDefault();
+      if (e.dataTransfer.files.length) loadImage(e.dataTransfer.files[0]);
+    });
+    widthInput.addEventListener('input', () => {
+      widthLabel.textContent = widthInput.value;
+      regenerate(false);
+    });
+    [brandSelect, paletteLimitSelect, quantModeSelect].forEach(el =>
+      el.addEventListener('change', () => regenerate())
+    );
+    cartoonInput.addEventListener('change', () => regenerate(true));
+    ditherInput.addEventListener('change', () => regenerate(true));
+    showCodesInput.addEventListener('change', () => {
+      if (!currentImage) return;
+      render(null, currentGridWidth, currentGridHeight, brandSelect.value);
+    });
+    document.getElementById('download-png').addEventListener('click', () => {
+      canvas.toBlob(blob => saveBlob(blob, `拼豆图纸-${brandSelect.value}.png`, 'image/png'), 'image/png');
+    });
+    document.getElementById('download-csv').addEventListener('click', () => {
+      const rows = countBeads(currentAssignments, 0, 0);
+      const csv = ['品牌,色号,颜色名,数量'].concat(rows.map(r =>
+        [BRANDS[brandSelect.value].name, r.id, r.name, r.count].join(',')
+      )).join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      saveBlob(blob, `拼豆清单-${brandSelect.value}.csv`, 'text/csv');
+    });
+
+    function saveBlob(blob, filename, mime) {
+      if (window.AndroidBridge && AndroidBridge.saveFile) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = AndroidBridge.saveFile(filename, mime, String(reader.result).split(',')[1]);
+          const isImage = mime.startsWith('image/');
+          showToast(result === 'ok'
+            ? (isImage ? '已保存到相册 Pictures/Pindou' : '已保存到下载目录')
+            : '保存失败：' + result,
+            result === 'ok' ? 'ok' : 'error');
+        };
+        reader.readAsDataURL(blob);
+        return;
+      }
+      showToast('已开始下载');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    }
+
+    let toastTimer = null;
+    function showToast(text, type = 'ok') {
+      saveToast.textContent = text;
+      saveToast.className = `cute-toast show ${type}`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        saveToast.className = `cute-toast ${type}`;
+      }, 2200);
+    }
+
+    populateBrands();
+  </script>
+</body>
+</html>
