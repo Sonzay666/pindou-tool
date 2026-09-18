@@ -190,10 +190,6 @@
           <span class="text-sm font-bold cute-text">图纸显示色号</span>
         </label>
         <label class="flex items-center gap-2">
-          <input id="photo-mode" type="checkbox" class="cute-check">
-          <span class="text-sm font-bold cute-text">照片模式（保留细节）</span>
-        </label>
-        <label class="flex items-center gap-2">
           <input id="dither" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">抖动（渐变过渡）</span>
         </label>
@@ -253,7 +249,6 @@
     const quantModeSelect = document.getElementById('quant-mode');
     const showCodesInput = document.getElementById('show-codes');
     const cartoonInput = document.getElementById('cartoon');
-    const photoModeInput = document.getElementById('photo-mode');
     const cleanModeInput = document.getElementById('clean-mode');
     const ditherInput = document.getElementById('dither');
     const edgeEnhanceInput = document.getElementById('edge-enhance');
@@ -401,9 +396,13 @@
         : (rgb1, rgb2) => colorDistanceOklab(oklabFromRgb(rgb1), oklabFromRgb(rgb2));
     }
 
-    function fitImageToGrid(img, gridWidth, photoMode = false) {
+    function adjustDitherError(error, strength) {
+      for (let i = 0; i < error.length; i++) error[i] *= strength;
+    }
+
+    function fitImageToGrid(img, gridWidth) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
-      const sampleFactor = photoMode ? 6 : 4;
+      const sampleFactor = 5;
       const sampleWidth = gridWidth * sampleFactor;
       const sampleHeight = gridHeight * sampleFactor;
       const sampler = document.createElement('canvas');
@@ -426,7 +425,7 @@
           const r = sampled.data[si];
           const g = sampled.data[si + 1];
           const b = sampled.data[si + 2];
-          const quantShift = photoMode ? 3 : 4;
+          const quantShift = 3;
           const key = ((r >> quantShift) << 10) | ((g >> quantShift) << 5) | (b >> quantShift);
           const cellBuckets = buckets[gy * gridWidth + gx];
           if (!cellBuckets.has(key)) {
@@ -492,7 +491,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false, dither = false, realisticMode = false) {
+    function buildPalette(imgData, brandId, limit, mode, cartoon = false, cleanMode = false, dither = false, realisticMode = false) {
       const brand = BRANDS[brandId];
       const colorDistance = createColorDistanceFunction(realisticMode);
       const d = imgData.data;
@@ -547,7 +546,8 @@
             const a = entries[i], b = entries[j];
             if (find(a.bead.id) === find(b.bead.id)) continue;
           const dist = colorDistance(a.bead.rgb, b.bead.rgb);
-            if (dist < 6.2 && map.size + palette.length - j > minColors) {
+            const mergeDistance = realisticMode ? 6.2 : 0.038;
+            if (dist < mergeDistance && map.size + palette.length - j > minColors) {
               parent.set(find(a.bead.id), find(b.bead.id));
             }
           }
@@ -611,9 +611,10 @@
             spread(x + 1, y + 1, 1 / 16);
           }
         }
+        adjustDitherError(err, realisticMode ? 0.82 : 0.78);
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode && !dither ? 35 : cleanMode && !dither ? 100 : 0, realisticMode, colorDistance);
-      if ((photoMode || cleanMode) && !dither) {
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, cleanMode && !dither ? 100 : 0, realisticMode, colorDistance);
+      if (cleanMode && !dither) {
         smoothScatteredPixels(assignments, imgData.width, imgData.height, cleanMode ? 2 : 1);
       }
       return { palette: palette.map(p => p.bead), assignments };
@@ -830,15 +831,14 @@
       }
       const gridWidth = Number(widthInput.value);
       widthLabel.textContent = gridWidth;
-      const photoMode = photoModeInput.checked;
       const realisticMode = realisticModeInput.checked;
-      let imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
+      let imgData = fitImageToGrid(currentImage, gridWidth);
       if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
       const gridHeight = imgData.height;
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked, ditherInput.checked, realisticMode);
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, cleanModeInput.checked, ditherInput.checked, realisticMode);
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -896,7 +896,7 @@
       el.addEventListener('change', () => regenerate())
     );
     cartoonInput.addEventListener('change', () => regenerate(true));
-    [photoModeInput, cleanModeInput, ditherInput, edgeEnhanceInput, realisticModeInput].forEach(el =>
+    [cleanModeInput, ditherInput, edgeEnhanceInput, realisticModeInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
