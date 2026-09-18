@@ -205,6 +205,10 @@
           <input id="clean-mode" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">干净模式（强力清理）</span>
         </label>
+        <label class="flex items-center gap-2">
+          <input id="edge-enhance" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">边缘增强</span>
+        </label>
       </div>
     </section>
 
@@ -248,6 +252,7 @@
     const photoModeInput = document.getElementById('photo-mode');
     const cleanModeInput = document.getElementById('clean-mode');
     const ditherInput = document.getElementById('dither');
+    const edgeEnhanceInput = document.getElementById('edge-enhance');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
     const canvas = document.getElementById('canvas');
@@ -301,6 +306,88 @@
     function colorDistanceOklab(a, b) {
       const dl = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
       return dl*dl + da*da + db*db;
+    }
+
+    function rgbToCieLab([r, g, b]) {
+      const R = srgbToLinear(r), G = srgbToLinear(g), B = srgbToLinear(b);
+      let x = 0.4123907993 * R + 0.3575843394 * G + 0.1804807884 * B;
+      let y = 0.2126390059 * R + 0.7151686788 * G + 0.0721923154 * B;
+      let z = 0.0193308187 * R + 0.1191947798 * G + 0.9505321522 * B;
+      x /= 0.95047;
+      const f = value => value > 0.008856 ? Math.cbrt(value) : (7.787 * value + 16 / 116);
+      const fx = f(x), fy = f(y), fz = f(z);
+      return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+    }
+
+    const cieLabCache = new Map();
+    function cieLabFromRgb(rgb) {
+      const key = rgb.join(',');
+      if (!cieLabCache.has(key)) cieLabCache.set(key, rgbToCieLab(rgb));
+      return cieLabCache.get(key);
+    }
+
+    function colorDifferenceCie2000(lab1, lab2) {
+      const [L1, a1, b1] = lab1;
+      const [L2, a2, b2] = lab2;
+      const kL = 1, kC = 1, kH = 1;
+      const c1 = Math.sqrt(a1 * a1 + b1 * b1);
+      const c2 = Math.sqrt(a2 * a2 + b2 * b2);
+      const cBar = (c1 + c2) / 2;
+      const cBar7 = Math.pow(cBar, 7);
+      const g = 0.5 * (1 - Math.sqrt(cBar7 / (cBar7 + Math.pow(25, 7))));
+      const a1Prime = (1 + g) * a1;
+      const a2Prime = (1 + g) * a2;
+      const c1Prime = Math.sqrt(a1Prime * a1Prime + b1 * b1);
+      const c2Prime = Math.sqrt(a2Prime * a2Prime + b2 * b2);
+      const h1Prime = (Math.atan2(b1, a1Prime) * 180 / Math.PI + 360) % 360;
+      const h2Prime = (Math.atan2(b2, a2Prime) * 180 / Math.PI + 360) % 360;
+      const deltaLPrime = L2 - L1;
+      const deltaCPrime = c2Prime - c1Prime;
+
+      let deltaHPrime;
+      if (c1Prime * c2Prime === 0) {
+        deltaHPrime = 0;
+      } else if (Math.abs(h2Prime - h1Prime) <= 180) {
+        deltaHPrime = h2Prime - h1Prime;
+      } else if (h2Prime - h1Prime > 180) {
+        deltaHPrime = h2Prime - h1Prime - 360;
+      } else {
+        deltaHPrime = h2Prime - h1Prime + 360;
+      }
+
+      const deltaH = 2 * Math.sqrt(c1Prime * c2Prime) * Math.sin(deltaHPrime * Math.PI / 360);
+      const lBarPrime = (L1 + L2) / 2;
+      const cBarPrime = (c1Prime + c2Prime) / 2;
+
+      let hBarPrime;
+      if (c1Prime * c2Prime === 0) {
+        hBarPrime = h1Prime + h2Prime;
+      } else if (Math.abs(h1Prime - h2Prime) <= 180) {
+        hBarPrime = (h1Prime + h2Prime) / 2;
+      } else if (h1Prime + h2Prime < 360) {
+        hBarPrime = (h1Prime + h2Prime + 360) / 2;
+      } else {
+        hBarPrime = (h1Prime + h2Prime - 360) / 2;
+      }
+
+      const t = 1 - 0.17 * Math.cos((hBarPrime - 30) * Math.PI / 180)
+        + 0.24 * Math.cos(2 * hBarPrime * Math.PI / 180)
+        + 0.32 * Math.cos((3 * hBarPrime + 6) * Math.PI / 180)
+        - 0.20 * Math.cos((4 * hBarPrime - 63) * Math.PI / 180);
+      const deltaTheta = 30 * Math.exp(-Math.pow((hBarPrime - 275) / 25, 2));
+      const cBarPrime7 = Math.pow(cBarPrime, 7);
+      const rC = 2 * Math.sqrt(cBarPrime7 / (cBarPrime7 + Math.pow(25, 7)));
+      const sL = 1 + (0.015 * Math.pow(lBarPrime - 50, 2)) / Math.sqrt(20 + Math.pow(lBarPrime - 50, 2));
+      const sC = 1 + 0.045 * cBarPrime;
+      const sH = 1 + 0.015 * cBarPrime * t;
+      const rT = -Math.sin(2 * deltaTheta * Math.PI / 180) * rC;
+
+      return Math.sqrt(
+        Math.pow(deltaLPrime / (kL * sL), 2) +
+        Math.pow(deltaCPrime / (kC * sC), 2) +
+        Math.pow(deltaH / (kH * sH), 2) +
+        rT * (deltaCPrime / (kC * sC)) * (deltaH / (kH * sH))
+      );
     }
 
     function fitImageToGrid(img, gridWidth, photoMode = false) {
@@ -416,7 +503,7 @@
       let palette = km.centers.map((rgb, idx) => {
         let best = null, bestDist = Infinity;
         for (const bead of brand.colors) {
-          const dist = colorDistanceOklab(oklabFromRgb(rgb), oklabFromRgb(bead.rgb));
+          const dist = colorDifferenceCie2000(cieLabFromRgb(rgb), cieLabFromRgb(bead.rgb));
           if (dist < bestDist) { bestDist = dist; best = bead; }
         }
         return { bead: best, kmIndex: idx, rgb };
@@ -447,8 +534,8 @@
           for (let j = i + 1; j < entries.length; j++) {
             const a = entries[i], b = entries[j];
             if (find(a.bead.id) === find(b.bead.id)) continue;
-            const dist = colorDistanceOklab(oklabFromRgb(a.bead.rgb), oklabFromRgb(b.bead.rgb));
-            if (dist < 0.038 && map.size + palette.length - j > minColors) {
+          const dist = colorDifferenceCie2000(cieLabFromRgb(a.bead.rgb), cieLabFromRgb(b.bead.rgb));
+            if (dist < 6.2 && map.size + palette.length - j > minColors) {
               parent.set(find(a.bead.id), find(b.bead.id));
             }
           }
@@ -463,10 +550,10 @@
       paletteById = Object.fromEntries(palette.map(p => [p.bead.id, p.bead]));
 
       const assignments = new Array(indices.length);
-      const nearestPaletteBead = (oklab) => {
+      const nearestPaletteBead = (rgb) => {
         let best = null, bestDist = Infinity;
         for (const item of palette) {
-          const dist = colorDistanceOklab(oklab, oklabFromRgb(item.bead.rgb));
+          const dist = colorDifferenceCie2000(cieLabFromRgb(rgb), cieLabFromRgb(item.bead.rgb));
           if (dist < bestDist) { bestDist = dist; best = item; }
         }
         return best;
@@ -475,7 +562,7 @@
       if (!dither) {
         for (let i = 0; i < indices.length; i++) {
           const rgb = opaque[i];
-          const best = nearestPaletteBead(oklabFromRgb(rgb));
+          const best = nearestPaletteBead(rgb);
           assignments[indices[i]] = best.bead.id;
         }
       } else {
@@ -485,14 +572,14 @@
             const p = y * imgData.width + x;
             const i = p * 4;
             if (transparentPixel(d, i)) continue;
-            const target = oklabFromRgb([d[i], d[i+1], d[i+2]]).slice();
+            const target = [d[i], d[i+1], d[i+2]].slice();
             const eIndex = p * 3;
             target[0] += err[eIndex];
             target[1] += err[eIndex + 1];
             target[2] += err[eIndex + 2];
             const best = nearestPaletteBead(target);
             assignments[p] = best.bead.id;
-            const chosen = oklabFromRgb(best.bead.rgb);
+            const chosen = cieLabFromRgb(best.bead.rgb);
             const e = [target[0] - chosen[0], target[1] - chosen[1], target[2] - chosen[2]];
             const spread = (nx, ny, factor) => {
               if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
@@ -615,9 +702,9 @@
         if (cells.length > maxArea || !contact.size) continue;
         let targetId = null;
         let bestScore = -Infinity;
-        const sourceColor = oklabFromRgb(paletteById[colorId].rgb);
+        const sourceColor = cieLabFromRgb(paletteById[colorId].rgb);
         for (const [candidateId, count] of contact.entries()) {
-          const distance = colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[candidateId].rgb));
+          const distance = colorDifferenceCie2000(sourceColor, cieLabFromRgb(paletteById[candidateId].rgb));
           const score = count - distance * 24;
           if (score > bestScore) {
             bestScore = score;
@@ -625,7 +712,7 @@
           }
         }
 
-        const canMerge = strength >= 100 || colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
+        const canMerge = strength >= 100 || colorDifferenceCie2000(sourceColor, cieLabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
         if (canMerge) {
           for (const index of cells) assignments[index] = targetId;
         }
@@ -727,7 +814,7 @@
       widthLabel.textContent = gridWidth;
       const photoMode = photoModeInput.checked;
       let imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
-      imgData = applyEdgeEnhancement(imgData);
+      if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
       const gridHeight = imgData.height;
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
@@ -790,7 +877,7 @@
       el.addEventListener('change', () => regenerate())
     );
     cartoonInput.addEventListener('change', () => regenerate(true));
-    [photoModeInput, cleanModeInput, ditherInput].forEach(el =>
+    [photoModeInput, cleanModeInput, ditherInput, edgeEnhanceInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
