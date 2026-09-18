@@ -87,9 +87,11 @@
     .cute-toast {
       position: fixed;
       left: 50%;
-      bottom: 2rem;
-      transform: translate(-50%, 120%);
+      top: 50%;
+      transform: translate(-50%, -50%) scale(.92);
       z-index: 60;
+      max-width: min(90vw, 32rem);
+      text-align: center;
       padding: .7rem 1.2rem;
       font-weight: 700;
       color: #7A3C50;
@@ -97,9 +99,11 @@
       border: 2px solid #FFC3D2;
       border-radius: 999px;
       box-shadow: 0 10px 24px -14px rgba(244, 114, 142, .7);
-      transition: transform .28s cubic-bezier(.2, .9, .3, 1.2);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .28s ease, transform .28s cubic-bezier(.2, .9, .3, 1.2);
     }
-    .cute-toast.show { transform: translate(-50%, 0); }
+    .cute-toast.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
     .cute-toast.ok { border-color: #FFB3C5; }
     .cute-toast.error { border-color: #FF8C8C; color: #A84A4A; }
   </style>
@@ -171,6 +175,7 @@
           <h2 class="font-bold text-lg cute-title">拼豆图纸</h2>
           <div class="flex gap-2">
             <button id="download-png" class="cute-button cute-button-primary text-sm">下载图纸 PNG</button>
+            <button id="download-report" class="cute-button cute-button-primary text-sm">下载图纸+清单</button>
             <button id="download-csv" class="cute-button cute-button-secondary text-sm">下载豆数 CSV</button>
           </div>
         </div>
@@ -571,6 +576,13 @@
     document.getElementById('download-png').addEventListener('click', () => {
       canvas.toBlob(blob => saveBlob(blob, `拼豆图纸-${brandSelect.value}.png`, 'image/png'), 'image/png');
     });
+
+    document.getElementById('download-report').addEventListener('click', () => {
+      const reportCanvas = buildReportCanvas();
+      if (!reportCanvas) return;
+      reportCanvas.toBlob(blob => saveBlob(blob, `拼豆图纸清单-${brandSelect.value}.png`, 'image/png'), 'image/png');
+    });
+
     document.getElementById('download-csv').addEventListener('click', () => {
       const rows = countBeads(currentAssignments, 0, 0);
       const csv = ['品牌,色号,颜色名,数量'].concat(rows.map(r =>
@@ -599,6 +611,87 @@
       a.href = URL.createObjectURL(blob);
       a.download = filename;
       a.click();
+    }
+
+    function buildReportCanvas() {
+      if (!currentAssignments.length || !currentGridWidth || !currentGridHeight) return null;
+      const rows = countBeads(currentAssignments, currentGridWidth, currentGridHeight);
+      if (!rows.length) return null;
+
+      const margin = Math.max(28, Math.round(canvas.width * .035));
+      const gap = Math.max(18, Math.round(canvas.width * .025));
+      const unit = Math.max(18, Math.min(52, Math.round(canvas.width / 48)));
+      const columnWidth = unit * 5.4;
+      const rowHeight = unit * 1.55;
+      const listWidth = canvas.width;
+      const columnCount = Math.max(1, Math.floor(listWidth / columnWidth));
+      const rowCount = Math.ceil(rows.length / columnCount);
+
+      const width = canvas.width + margin * 2;
+      const summaryHeight = rowHeight * 1.8;
+      const height = margin + canvas.height + gap + summaryHeight + rowCount * rowHeight + margin;
+      const out = document.createElement('canvas');
+      out.width = width;
+      out.height = height;
+      const ctx = out.getContext('2d');
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(canvas, margin, margin);
+
+      const totalBeads = rows.reduce((sum, row) => sum + row.count, 0);
+      let top = margin + canvas.height + gap;
+      ctx.fillStyle = '#5D3641';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(unit * .72)}px Arial, sans-serif`;
+      ctx.fillText('拼豆色号清单', margin, top + summaryHeight * .32);
+
+      ctx.font = `600 ${Math.round(unit * .52)}px Arial, sans-serif`;
+      ctx.fillStyle = '#7A3C50';
+      ctx.fillText(`尺寸：${currentGridWidth} × ${currentGridHeight} 豆`, margin, top + summaryHeight * .78);
+      ctx.textAlign = 'right';
+      ctx.fillText(`总豆数：${totalBeads}`, margin + listWidth, top + summaryHeight * .78);
+
+      top += summaryHeight;
+      ctx.textAlign = 'left';
+      const swatchSize = Math.round(unit * .82);
+      const textXOffset = swatchSize + Math.round(unit * .28);
+      let fontColor = '#4A333A';
+
+      for (let index = 0; index < rows.length; index++) {
+        const row = rows[index];
+        const col = index % columnCount;
+        const rowIndex = Math.floor(index / columnCount);
+        const x = margin + col * columnWidth;
+        const y = top + rowIndex * rowHeight + rowHeight / 2;
+
+        ctx.fillStyle = row.rgb;
+        ctx.strokeStyle = 'rgba(0,0,0,.12)';
+        ctx.lineWidth = Math.max(1, Math.round(unit * .035));
+        const swatchY = y - swatchSize / 2;
+        ctx.beginPath();
+        ctx.roundRect(x, swatchY, swatchSize, swatchSize, swatchSize * .28);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = fontColor;
+        ctx.font = `700 ${Math.round(unit * .56)}px Arial, sans-serif`;
+        ctx.fillText(String(row.id), x + textXOffset, y - unit * .17);
+
+        ctx.fillStyle = '#7A3C50';
+        ctx.font = `500 ${Math.round(unit * .44)}px Arial, sans-serif`;
+        const beadName = row.name.length > 10 ? row.name.slice(0, 10) + '…' : row.name;
+        ctx.fillText(beadName, x + textXOffset, y + unit * .28);
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = fontColor;
+        ctx.font = `700 ${Math.round(unit * .58)}px Arial, sans-serif`;
+        ctx.fillText(String(row.count), x + columnWidth - unit * .3, y);
+        ctx.textAlign = 'left';
+      }
+
+      return out;
     }
 
     let toastTimer = null;
