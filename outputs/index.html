@@ -184,24 +184,22 @@
           <option value="color">彩色</option>
         </select>
       </label>
-      <label class="block">
-        <span class="text-sm font-bold cute-title">杂色清理</span>
-        <input id="cleanup" type="range" min="0" max="100" value="35" class="w-full accent-sky-500 mt-3">
-        <span id="cleanup-label" class="mt-1 block text-xs text-slate-500">35 · 适中</span>
-        <span class="mt-1 block text-xs text-slate-500">低：保留细节；高：色块干净</span>
-      </label>
       <div class="md:col-span-4 flex flex-wrap items-center gap-6">
         <label class="flex items-center gap-2">
           <input id="show-codes" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">图纸显示色号</span>
         </label>
         <label class="flex items-center gap-2">
-          <input id="dither" type="checkbox" class="cute-check">
-          <span class="text-sm font-bold cute-text">抖动（适合照片）</span>
+          <input id="photo-mode" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">照片模式（保留细节）</span>
         </label>
         <label class="flex items-center gap-2">
           <input id="cartoon" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">卡通合并（减少颜色）</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input id="clean-mode" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">干净模式（强力清理）</span>
         </label>
       </div>
     </section>
@@ -242,10 +240,9 @@
     const paletteLimitSelect = document.getElementById('palette-limit');
     const quantModeSelect = document.getElementById('quant-mode');
     const showCodesInput = document.getElementById('show-codes');
-    const ditherInput = document.getElementById('dither');
     const cartoonInput = document.getElementById('cartoon');
-    const cleanupInput = document.getElementById('cleanup');
-    const cleanupLabel = document.getElementById('cleanup-label');
+    const photoModeInput = document.getElementById('photo-mode');
+    const cleanModeInput = document.getElementById('clean-mode');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
     const canvas = document.getElementById('canvas');
@@ -301,9 +298,9 @@
       return dl*dl + da*da + db*db;
     }
 
-    function fitImageToGrid(img, gridWidth) {
+    function fitImageToGrid(img, gridWidth, photoMode = false) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
-      const sampleFactor = 4;
+      const sampleFactor = photoMode ? 6 : 4;
       const sampleWidth = gridWidth * sampleFactor;
       const sampleHeight = gridHeight * sampleFactor;
       const sampler = document.createElement('canvas');
@@ -326,7 +323,8 @@
           const r = sampled.data[si];
           const g = sampled.data[si + 1];
           const b = sampled.data[si + 2];
-          const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+          const quantShift = photoMode ? 3 : 4;
+          const key = ((r >> quantShift) << 10) | ((g >> quantShift) << 5) | (b >> quantShift);
           const cellBuckets = buckets[gy * gridWidth + gx];
           if (!cellBuckets.has(key)) {
             cellBuckets.set(key, { count: 0, r: 0, g: 0, b: 0 });
@@ -391,7 +389,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, dither = false, cartoon = false, cleanupStrength = 0) {
+    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false) {
       const brand = BRANDS[brandId];
       const d = imgData.data;
       const opaque = [];
@@ -469,51 +467,53 @@
         return best;
       };
 
-      if (!dither) {
-        for (let i = 0; i < indices.length; i++) {
-          const rgb = opaque[i];
-          const best = nearestPaletteBead(oklabFromRgb(rgb));
-          assignments[indices[i]] = best.bead.id;
-        }
-      } else {
-        const err = new Float32Array(imgData.width * imgData.height * 3);
-        for (let y = 0; y < imgData.height; y++) {
-          for (let x = 0; x < imgData.width; x++) {
-            const p = y * imgData.width + x;
-            const i = p * 4;
-            if (transparentPixel(d, i)) continue;
-            const target = oklabFromRgb([d[i], d[i+1], d[i+2]]).slice();
-            const eIndex = p * 3;
-            target[0] += err[eIndex];
-            target[1] += err[eIndex + 1];
-            target[2] += err[eIndex + 2];
-            const best = nearestPaletteBead(target);
-            assignments[p] = best.bead.id;
-            const chosen = oklabFromRgb(best.bead.rgb);
-            const e = [target[0] - chosen[0], target[1] - chosen[1], target[2] - chosen[2]];
-            const spread = (nx, ny, factor) => {
-              if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
-              const np = ny * imgData.width + nx;
-              const ne = np * 3;
-              err[ne] += e[0] * factor;
-              err[ne + 1] += e[1] * factor;
-              err[ne + 2] += e[2] * factor;
-            };
-            spread(x + 1, y, 7 / 16);
-            spread(x - 1, y + 1, 3 / 16);
-            spread(x, y + 1, 5 / 16);
-            spread(x + 1, y + 1, 1 / 16);
+      for (let i = 0; i < indices.length; i++) {
+        const rgb = opaque[i];
+        const best = nearestPaletteBead(oklabFromRgb(rgb));
+        assignments[indices[i]] = best.bead.id;
+      }
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode ? 35 : cleanMode ? 100 : 0);
+      if (photoMode || cleanMode) {
+        smoothScatteredPixels(assignments, imgData.width, imgData.height, cleanMode ? 2 : 1);
+      }
+      return { palette: palette.map(p => p.bead), assignments };
+    }
+
+    function smoothScatteredPixels(assignments, gridWidth, gridHeight, passes) {
+      const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+      for (let pass = 0; pass < passes; pass++) {
+        const replacement = new Map();
+        for (let y = 0; y < gridHeight; y++) {
+          for (let x = 0; x < gridWidth; x++) {
+            const index = y * gridWidth + x;
+            const colorId = assignments[index];
+            if (!colorId) continue;
+            const contacts = new Map();
+            for (const [dx, dy] of directions) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight) continue;
+              const neighborId = assignments[ny * gridWidth + nx];
+              if (!neighborId || neighborId === colorId) continue;
+              contacts.set(neighborId, (contacts.get(neighborId) || 0) + 1);
+            }
+            const support = [...contacts.values()].reduce((sum, count) => sum + count, 0);
+            const bestCount = Math.max(0, ...contacts.values());
+            if (support >= 6 && bestCount >= 5) {
+              replacement.set(index, [...contacts.entries()].sort((a, b) => b[1] - a[1])[0][0]);
+            }
           }
         }
+        if (!replacement.size) break;
+        for (const [index, colorId] of replacement.entries()) assignments[index] = colorId;
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, cleanupStrength);
-      return { palette: palette.map(p => p.bead), assignments };
+      return assignments;
     }
 
     function cleanupIsolatedRegions(assignments, gridWidth, gridHeight, strength) {
       if (strength <= 0) return assignments;
-      const maxArea = Math.max(1, Math.round((strength / 100) * 12));
-      const colorThreshold = 0.03 + (strength / 100) * 0.08;
+      const maxArea = Math.max(1, Math.round((strength / 100) * 16));
+      const colorThreshold = 0.035 + (strength / 100) * 0.09;
       const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       const visited = new Uint8Array(gridWidth * gridHeight);
 
@@ -557,7 +557,7 @@
           }
         }
 
-        const canMerge = strength >= 80 || colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
+        const canMerge = strength >= 100 || colorDistanceOklab(sourceColor, oklabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
         if (canMerge) {
           for (const index of cells) assignments[index] = targetId;
         }
@@ -657,12 +657,13 @@
       }
       const gridWidth = Number(widthInput.value);
       widthLabel.textContent = gridWidth;
-      const imgData = fitImageToGrid(currentImage, gridWidth);
+      const photoMode = photoModeInput.checked;
+      const imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
       const gridHeight = imgData.height;
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, ditherInput.checked, cartoonInput.checked, Number(cleanupInput.value));
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked);
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -705,11 +706,6 @@
       regenerate(false);
     });
 
-    cleanupInput.addEventListener('input', () => {
-      cleanupLabel.textContent = `${cleanupInput.value} · ${cleanupInput.value < 25 ? '保留细节' : cleanupInput.value < 65 ? '适中' : '色块干净'}`;
-      regenerate(false);
-    });
-
     quickSizes.addEventListener('click', event => {
       const button = event.target.closest('.quick-size');
       if (!button) return;
@@ -725,7 +721,9 @@
       el.addEventListener('change', () => regenerate())
     );
     cartoonInput.addEventListener('change', () => regenerate(true));
-    ditherInput.addEventListener('change', () => regenerate(true));
+    [photoModeInput, cleanModeInput].forEach(el =>
+      el.addEventListener('change', () => regenerate(true))
+    );
     showCodesInput.addEventListener('change', () => {
       if (!currentImage) return;
       render(null, currentGridWidth, currentGridHeight, brandSelect.value);
@@ -865,3 +863,5 @@
   </script>
 </body>
 </html>
+
+
