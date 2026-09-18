@@ -599,14 +599,14 @@
           const result = AndroidBridge.saveFile(filename, mime, String(reader.result).split(',')[1]);
           const isImage = mime.startsWith('image/');
           showToast(result === 'ok'
-            ? (isImage ? '已保存到相册 Pictures/Pindou' : '已保存到下载目录')
+            ? '已保存'
             : '保存失败：' + result,
             result === 'ok' ? 'ok' : 'error');
         };
         reader.readAsDataURL(blob);
         return;
       }
-      showToast('已开始下载');
+      showToast('已保存');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
