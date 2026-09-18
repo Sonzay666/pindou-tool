@@ -209,6 +209,10 @@
           <input id="edge-enhance" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">边缘增强</span>
         </label>
+        <label class="flex items-center gap-2">
+          <input id="realistic-mode" type="checkbox" class="cute-check">
+          <span class="text-sm font-bold cute-text">真实（肤色精准）</span>
+        </label>
       </div>
     </section>
 
@@ -253,6 +257,7 @@
     const cleanModeInput = document.getElementById('clean-mode');
     const ditherInput = document.getElementById('dither');
     const edgeEnhanceInput = document.getElementById('edge-enhance');
+    const realisticModeInput = document.getElementById('realistic-mode');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
     const canvas = document.getElementById('canvas');
@@ -390,6 +395,12 @@
       );
     }
 
+    function createColorDistanceFunction(realisticMode) {
+      return realisticMode
+        ? (rgb1, rgb2) => colorDifferenceCie2000(cieLabFromRgb(rgb1), cieLabFromRgb(rgb2))
+        : (rgb1, rgb2) => colorDistanceOklab(oklabFromRgb(rgb1), oklabFromRgb(rgb2));
+    }
+
     function fitImageToGrid(img, gridWidth, photoMode = false) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
       const sampleFactor = photoMode ? 6 : 4;
@@ -481,8 +492,9 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false, dither = false) {
+    function buildPalette(imgData, brandId, limit, mode, cartoon = false, photoMode = false, cleanMode = false, dither = false, realisticMode = false) {
       const brand = BRANDS[brandId];
+      const colorDistance = createColorDistanceFunction(realisticMode);
       const d = imgData.data;
       const opaque = [];
       const indices = [];
@@ -503,7 +515,7 @@
       let palette = km.centers.map((rgb, idx) => {
         let best = null, bestDist = Infinity;
         for (const bead of brand.colors) {
-          const dist = colorDifferenceCie2000(cieLabFromRgb(rgb), cieLabFromRgb(bead.rgb));
+          const dist = colorDistance(rgb, bead.rgb);
           if (dist < bestDist) { bestDist = dist; best = bead; }
         }
         return { bead: best, kmIndex: idx, rgb };
@@ -534,7 +546,7 @@
           for (let j = i + 1; j < entries.length; j++) {
             const a = entries[i], b = entries[j];
             if (find(a.bead.id) === find(b.bead.id)) continue;
-          const dist = colorDifferenceCie2000(cieLabFromRgb(a.bead.rgb), cieLabFromRgb(b.bead.rgb));
+          const dist = colorDistance(a.bead.rgb, b.bead.rgb);
             if (dist < 6.2 && map.size + palette.length - j > minColors) {
               parent.set(find(a.bead.id), find(b.bead.id));
             }
@@ -553,7 +565,7 @@
       const nearestPaletteBead = (rgb) => {
         let best = null, bestDist = Infinity;
         for (const item of palette) {
-          const dist = colorDifferenceCie2000(cieLabFromRgb(rgb), cieLabFromRgb(item.bead.rgb));
+          const dist = colorDistance(rgb, item.bead.rgb);
           if (dist < bestDist) { bestDist = dist; best = item; }
         }
         return best;
@@ -579,8 +591,12 @@
             target[2] += err[eIndex + 2];
             const best = nearestPaletteBead(target);
             assignments[p] = best.bead.id;
-            const chosen = cieLabFromRgb(best.bead.rgb);
-            const e = [target[0] - chosen[0], target[1] - chosen[1], target[2] - chosen[2]];
+            const chosen = oklabFromRgb(best.bead.rgb);
+            const e = [
+              rgbToOklab([target[0], target[1], target[2]])[0] - chosen[0],
+              rgbToOklab([target[0], target[1], target[2]])[1] - chosen[1],
+              rgbToOklab([target[0], target[1], target[2]])[2] - chosen[2],
+            ];
             const spread = (nx, ny, factor) => {
               if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
               const np = ny * imgData.width + nx;
@@ -596,7 +612,7 @@
           }
         }
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode && !dither ? 35 : cleanMode && !dither ? 100 : 0);
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, photoMode && !dither ? 35 : cleanMode && !dither ? 100 : 0, realisticMode, colorDistance);
       if ((photoMode || cleanMode) && !dither) {
         smoothScatteredPixels(assignments, imgData.width, imgData.height, cleanMode ? 2 : 1);
       }
@@ -665,10 +681,12 @@
       return assignments;
     }
 
-    function cleanupIsolatedRegions(assignments, gridWidth, gridHeight, strength) {
+    function cleanupIsolatedRegions(assignments, gridWidth, gridHeight, strength, realisticMode = false, colorDistance = createColorDistanceFunction(realisticMode)) {
       if (strength <= 0) return assignments;
       const maxArea = Math.max(1, Math.round((strength / 100) * 16));
-      const colorThreshold = 0.035 + (strength / 100) * 0.09;
+      const colorThreshold = realisticMode
+        ? 6.2 + (strength / 100) * 10
+        : 0.035 + (strength / 100) * 0.09;
       const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       const visited = new Uint8Array(gridWidth * gridHeight);
 
@@ -702,17 +720,17 @@
         if (cells.length > maxArea || !contact.size) continue;
         let targetId = null;
         let bestScore = -Infinity;
-        const sourceColor = cieLabFromRgb(paletteById[colorId].rgb);
+        const sourceColor = paletteById[colorId].rgb;
         for (const [candidateId, count] of contact.entries()) {
-          const distance = colorDifferenceCie2000(sourceColor, cieLabFromRgb(paletteById[candidateId].rgb));
-          const score = count - distance * 24;
+          const distance = colorDistance(sourceColor, paletteById[candidateId].rgb);
+          const score = realisticMode ? count - distance * 0.35 : count - distance * 24;
           if (score > bestScore) {
             bestScore = score;
             targetId = candidateId;
           }
         }
 
-        const canMerge = strength >= 100 || colorDifferenceCie2000(sourceColor, cieLabFromRgb(paletteById[targetId].rgb)) <= colorThreshold;
+        const canMerge = strength >= 100 || distance <= colorThreshold;
         if (canMerge) {
           for (const index of cells) assignments[index] = targetId;
         }
@@ -813,13 +831,14 @@
       const gridWidth = Number(widthInput.value);
       widthLabel.textContent = gridWidth;
       const photoMode = photoModeInput.checked;
+      const realisticMode = realisticModeInput.checked;
       let imgData = fitImageToGrid(currentImage, gridWidth, photoMode);
       if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
       const gridHeight = imgData.height;
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked, ditherInput.checked);
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, photoMode, cleanModeInput.checked, ditherInput.checked, realisticMode);
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -877,7 +896,7 @@
       el.addEventListener('change', () => regenerate())
     );
     cartoonInput.addEventListener('change', () => regenerate(true));
-    [photoModeInput, cleanModeInput, ditherInput, edgeEnhanceInput].forEach(el =>
+    [photoModeInput, cleanModeInput, ditherInput, edgeEnhanceInput, realisticModeInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
