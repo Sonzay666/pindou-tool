@@ -190,18 +190,6 @@
           <span class="text-sm font-bold cute-text">图纸显示色号</span>
         </label>
         <label class="flex items-center gap-2">
-          <input id="dither" type="checkbox" class="cute-check">
-          <span class="text-sm font-bold cute-text">抖动（渐变过渡）</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input id="cartoon" type="checkbox" class="cute-check">
-          <span class="text-sm font-bold cute-text">卡通合并（减少颜色）</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input id="clean-mode" type="checkbox" class="cute-check">
-          <span class="text-sm font-bold cute-text">干净模式（强力清理）</span>
-        </label>
-        <label class="flex items-center gap-2">
           <input id="edge-enhance" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">边缘增强</span>
         </label>
@@ -248,9 +236,6 @@
     const paletteLimitSelect = document.getElementById('palette-limit');
     const quantModeSelect = document.getElementById('quant-mode');
     const showCodesInput = document.getElementById('show-codes');
-    const cartoonInput = document.getElementById('cartoon');
-    const cleanModeInput = document.getElementById('clean-mode');
-    const ditherInput = document.getElementById('dither');
     const edgeEnhanceInput = document.getElementById('edge-enhance');
     const realisticModeInput = document.getElementById('realistic-mode');
     const controls = document.getElementById('controls');
@@ -396,10 +381,6 @@
         : (rgb1, rgb2) => colorDistanceOklab(oklabFromRgb(rgb1), oklabFromRgb(rgb2));
     }
 
-    function adjustDitherError(error, strength) {
-      for (let i = 0; i < error.length; i++) error[i] *= strength;
-    }
-
     function fitImageToGrid(img, gridWidth) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
       const sampleFactor = 5;
@@ -491,7 +472,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, cartoon = false, cleanMode = false, dither = false, realisticMode = false) {
+    function buildPalette(imgData, brandId, limit, mode, realisticMode = false) {
       const brand = BRANDS[brandId];
       const colorDistance = createColorDistanceFunction(realisticMode);
       const d = imgData.data;
@@ -525,40 +506,6 @@
         if (!unique.has(item.bead.id)) unique.set(item.bead.id, item);
       }
       palette = [...unique.values()];
-      if (cartoon) {
-        const minColors = Math.min(palette.length, Math.max(6, Math.round(limit > 0 ? limit * 0.5 : 12)));
-        const map = new Map();
-        const parent = new Map();
-        for (const item of palette) parent.set(item.bead.id, item.bead.id);
-        const find = (id) => {
-          let root = id;
-          while (parent.get(root) !== root) root = parent.get(root);
-          while (parent.get(id) !== root) {
-            const next = parent.get(id);
-            parent.set(id, root);
-            id = next;
-          }
-          return root;
-        };
-        const entries = [...palette].sort((a, b) => a.bead.id.localeCompare(b.bead.id));
-        for (let i = 0; i < entries.length; i++) {
-          for (let j = i + 1; j < entries.length; j++) {
-            const a = entries[i], b = entries[j];
-            if (find(a.bead.id) === find(b.bead.id)) continue;
-          const dist = colorDistance(a.bead.rgb, b.bead.rgb);
-            const mergeDistance = realisticMode ? 6.2 : 0.038;
-            if (dist < mergeDistance && map.size + palette.length - j > minColors) {
-              parent.set(find(a.bead.id), find(b.bead.id));
-            }
-          }
-        }
-        for (const item of palette) {
-          const rootId = find(item.bead.id);
-          if (!map.has(rootId)) map.set(rootId, item);
-          map.get(rootId).rgb = item.rgb;
-        }
-        palette = [...map.values()];
-      }
       paletteById = Object.fromEntries(palette.map(p => [p.bead.id, p.bead]));
 
       const assignments = new Array(indices.length);
@@ -571,52 +518,13 @@
         return best;
       };
 
-      if (!dither) {
-        for (let i = 0; i < indices.length; i++) {
-          const rgb = opaque[i];
-          const best = nearestPaletteBead(rgb);
-          assignments[indices[i]] = best.bead.id;
-        }
-      } else {
-        const err = new Float32Array(imgData.width * imgData.height * 3);
-        for (let y = 0; y < imgData.height; y++) {
-          for (let x = 0; x < imgData.width; x++) {
-            const p = y * imgData.width + x;
-            const i = p * 4;
-            if (transparentPixel(d, i)) continue;
-            const target = [d[i], d[i+1], d[i+2]].slice();
-            const eIndex = p * 3;
-            target[0] += err[eIndex];
-            target[1] += err[eIndex + 1];
-            target[2] += err[eIndex + 2];
-            const best = nearestPaletteBead(target);
-            assignments[p] = best.bead.id;
-            const chosen = oklabFromRgb(best.bead.rgb);
-            const e = [
-              rgbToOklab([target[0], target[1], target[2]])[0] - chosen[0],
-              rgbToOklab([target[0], target[1], target[2]])[1] - chosen[1],
-              rgbToOklab([target[0], target[1], target[2]])[2] - chosen[2],
-            ];
-            const spread = (nx, ny, factor) => {
-              if (nx < 0 || nx >= imgData.width || ny >= imgData.height) return;
-              const np = ny * imgData.width + nx;
-              const ne = np * 3;
-              err[ne] += e[0] * factor;
-              err[ne + 1] += e[1] * factor;
-              err[ne + 2] += e[2] * factor;
-            };
-            spread(x + 1, y, 7 / 16);
-            spread(x - 1, y + 1, 3 / 16);
-            spread(x, y + 1, 5 / 16);
-            spread(x + 1, y + 1, 1 / 16);
-          }
-        }
-        adjustDitherError(err, realisticMode ? 0.82 : 0.78);
+      for (let i = 0; i < indices.length; i++) {
+        const rgb = opaque[i];
+        const best = nearestPaletteBead(rgb);
+        assignments[indices[i]] = best.bead.id;
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, cleanMode && !dither ? 100 : 0, realisticMode, colorDistance);
-      if (cleanMode && !dither) {
-        smoothScatteredPixels(assignments, imgData.width, imgData.height, cleanMode ? 2 : 1);
-      }
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, 30, realisticMode, colorDistance);
+      smoothScatteredPixels(assignments, imgData.width, imgData.height, 1);
       return { palette: palette.map(p => p.bead), assignments };
     }
 
@@ -838,7 +746,7 @@
       currentGridWidth = gridWidth;
       currentGridHeight = gridHeight;
       gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, cartoonInput.checked, cleanModeInput.checked, ditherInput.checked, realisticMode);
+      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode);
       currentAssignments = converted.assignments;
       currentPalette = converted.palette;
       currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -895,8 +803,7 @@
     [brandSelect, paletteLimitSelect, quantModeSelect].forEach(el =>
       el.addEventListener('change', () => regenerate())
     );
-    cartoonInput.addEventListener('change', () => regenerate(true));
-    [cleanModeInput, ditherInput, edgeEnhanceInput, realisticModeInput].forEach(el =>
+    [edgeEnhanceInput, realisticModeInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
