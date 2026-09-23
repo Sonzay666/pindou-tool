@@ -629,6 +629,7 @@
         if (cells.length > maxArea || !contact.size) continue;
         let targetId = null;
         let bestScore = -Infinity;
+        let bestDistance = Infinity;
         const sourceColor = paletteById[colorId].rgb;
         for (const [candidateId, count] of contact.entries()) {
           const distance = colorDistance(sourceColor, paletteById[candidateId].rgb);
@@ -636,10 +637,11 @@
           if (score > bestScore) {
             bestScore = score;
             targetId = candidateId;
+            bestDistance = distance;
           }
         }
 
-        const canMerge = strength >= 100 || distance <= colorThreshold;
+        const canMerge = strength >= 100 || bestDistance <= colorThreshold;
         if (canMerge) {
           for (const index of cells) assignments[index] = targetId;
         }
@@ -737,27 +739,30 @@
         progress.classList.add('flex');
         await new Promise(r => setTimeout(r, 20));
       }
-      const gridWidth = Number(widthInput.value);
-      widthLabel.textContent = gridWidth;
-      const realisticMode = realisticModeInput.checked;
-      let imgData = fitImageToGrid(currentImage, gridWidth);
-      if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
-      const gridHeight = imgData.height;
-      currentGridWidth = gridWidth;
-      currentGridHeight = gridHeight;
-      gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-      const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode);
-      currentAssignments = converted.assignments;
-      currentPalette = converted.palette;
-      currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
-      const rows = countBeads(currentAssignments, gridWidth, gridHeight);
-      render(imgData, gridWidth, gridHeight, brandSelect.value);
-      renderPaletteList(rows);
-      result.classList.remove('hidden');
-      controls.classList.remove('hidden');
-      if (showProgress) {
-        progress.classList.add('hidden');
-        progress.classList.remove('flex');
+      try {
+        const gridWidth = Number(widthInput.value);
+        widthLabel.textContent = gridWidth;
+        const realisticMode = realisticModeInput.checked;
+        let imgData = fitImageToGrid(currentImage, gridWidth);
+        if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
+        const gridHeight = imgData.height;
+        currentGridWidth = gridWidth;
+        currentGridHeight = gridHeight;
+        gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
+        const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode);
+        currentAssignments = converted.assignments;
+        currentPalette = converted.palette;
+        currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
+        const rows = countBeads(currentAssignments, gridWidth, gridHeight);
+        render(imgData, gridWidth, gridHeight, brandSelect.value);
+        renderPaletteList(rows);
+        result.classList.remove('hidden');
+        controls.classList.remove('hidden');
+      } finally {
+        if (showProgress) {
+          progress.classList.add('hidden');
+          progress.classList.remove('flex');
+        }
       }
     }
 
