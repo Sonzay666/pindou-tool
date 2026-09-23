@@ -492,6 +492,17 @@
       const target = isMono ? 2 : (limit > 0 ? limit : 48);
       const km = kmeans(opaque, target);
 
+      const directCounts = new Map();
+      for (let i = 0; i < indices.length; i++) {
+        const rgb = opaque[i];
+        let best = null, bestDist = Infinity;
+        for (const bead of brand.colors) {
+          const dist = colorDistance(rgb, bead.rgb);
+          if (dist < bestDist) { bestDist = dist; best = bead; }
+        }
+        directCounts.set(best.id, (directCounts.get(best.id) || 0) + 1);
+      }
+
       let palette = km.centers.map((rgb, idx) => {
         let best = null, bestDist = Infinity;
         for (const bead of brand.colors) {
@@ -505,7 +516,20 @@
       for (const item of palette) {
         if (!unique.has(item.bead.id)) unique.set(item.bead.id, item);
       }
-      palette = [...unique.values()];
+      const selected = new Map(unique);
+      if (selected.size < target) {
+        const minDirectCount = Math.max(1, Math.round(opaque.length * 0.001));
+        const frequentBeads = [...directCounts.entries()]
+          .filter(([, count]) => count >= minDirectCount)
+          .sort((a, b) => b[1] - a[1]);
+        for (const [beadId] of frequentBeads) {
+          if (selected.size >= target) break;
+          if (selected.has(beadId)) continue;
+          const bead = brand.colors.find(color => color.id === beadId);
+          if (bead) selected.set(beadId, { bead, rgb: bead.rgb });
+        }
+      }
+      palette = [...selected.values()];
       paletteById = Object.fromEntries(palette.map(p => [p.bead.id, p.bead]));
 
       const assignments = new Array(indices.length);
@@ -523,7 +547,7 @@
         const best = nearestPaletteBead(rgb);
         assignments[indices[i]] = best.bead.id;
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, 30, realisticMode, colorDistance);
+      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, 12, realisticMode, colorDistance);
       smoothScatteredPixels(assignments, imgData.width, imgData.height, 1);
       return { palette: palette.map(p => p.bead), assignments };
     }
