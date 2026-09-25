@@ -177,12 +177,21 @@
         </select>
       </label>
       <label class="block">
-        <span class="text-sm font-bold cute-title">颜色数量</span>
+        <span class="text-sm font-bold cute-title">颜色模式</span>
         <select id="quant-mode" class="w-full cute-input text-sm">
           <option value="auto">自动</option>
           <option value="black-white">黑白</option>
           <option value="color">彩色</option>
         </select>
+      </label>
+      <label class="block md:col-span-4">
+        <span class="text-sm font-bold cute-title">图片类型</span>
+        <select id="image-mode" class="cute-input text-sm ml-2">
+          <option value="auto">自动识别</option>
+          <option value="pixel">像素图案（保留原像素）</option>
+          <option value="photo">照片 / 插画</option>
+        </select>
+        <span class="block mt-1 text-xs cute-text">像素图案使用邻近采样，避免边缘混色；照片保持原有采样。</span>
       </label>
       <div class="md:col-span-4 flex flex-wrap items-center gap-6">
         <label class="flex items-center gap-2">
@@ -235,6 +244,7 @@
     const gridSizeInfo = document.getElementById('grid-size-info');
     const paletteLimitSelect = document.getElementById('palette-limit');
     const quantModeSelect = document.getElementById('quant-mode');
+    const imageModeSelect = document.getElementById('image-mode');
     const showCodesInput = document.getElementById('show-codes');
     const edgeEnhanceInput = document.getElementById('edge-enhance');
     const realisticModeInput = document.getElementById('realistic-mode');
@@ -252,6 +262,7 @@
     let paletteById = {};
     let currentGridWidth = 0;
     let currentGridHeight = 0;
+    let detectedPixelArt = false;
 
     function populateBrands() {
       brandSelect.innerHTML = '';
@@ -381,8 +392,45 @@
         : (rgb1, rgb2) => colorDistanceOklab(oklabFromRgb(rgb1), oklabFromRgb(rgb2));
     }
 
-    function fitImageToGrid(img, gridWidth) {
+    function detectPixelArt(img) {
+      const scale = Math.min(1, 256 / Math.max(img.width, img.height));
+      const width = Math.max(1, Math.round(img.width * scale));
+      const height = Math.max(1, Math.round(img.height * scale));
+      const sample = document.createElement('canvas');
+      sample.width = width;
+      sample.height = height;
+      const ctx = sample.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, width, height);
+      const data = ctx.getImageData(0, 0, width, height).data;
+      const colors = new Set();
+      let same = 0, compared = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          if (data[i + 3] < 128) continue;
+          colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+          for (const neighbor of [x > 0 ? i - 4 : -1, y > 0 ? i - width * 4 : -1]) {
+            if (neighbor < 0 || data[neighbor + 3] < 128) continue;
+            compared++;
+            if (data[i] === data[neighbor] && data[i + 1] === data[neighbor + 1] && data[i + 2] === data[neighbor + 2]) same++;
+          }
+        }
+      }
+      return colors.size <= 64 || (compared > 0 && same / compared >= 0.75);
+    }
+
+    function fitImageToGrid(img, gridWidth, pixelArt = false) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
+      if (pixelArt) {
+        const sampler = document.createElement('canvas');
+        sampler.width = gridWidth;
+        sampler.height = gridHeight;
+        const ctx = sampler.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, gridWidth, gridHeight);
+        return ctx.getImageData(0, 0, gridWidth, gridHeight);
+      }
       const sampleFactor = 5;
       const sampleWidth = gridWidth * sampleFactor;
       const sampleHeight = gridHeight * sampleFactor;
@@ -472,7 +520,7 @@
       return { centers, assignments };
     }
 
-    function buildPalette(imgData, brandId, limit, mode, realisticMode = false) {
+    function buildPalette(imgData, brandId, limit, mode, realisticMode = false, pixelArt = false) {
       const brand = BRANDS[brandId];
       const colorDistance = createColorDistanceFunction(realisticMode);
       const d = imgData.data;
@@ -489,19 +537,36 @@
       const isMono = mode === 'black-white' || (
         mode === 'auto' && opaque.every(([r,g,b]) => Math.max(r,g,b) - Math.min(r,g,b) < 18)
       );
-      const target = isMono ? 2 : (limit > 0 ? limit : 48);
-      const km = kmeans(opaque, target);
+      const target = isMono ? 2 : (limit > 0 ? limit : brand.colors.length);
 
       const directCounts = new Map();
+      const directAssignments = new Array(indices.length);
+      const matchCache = new Map();
       for (let i = 0; i < indices.length; i++) {
         const rgb = opaque[i];
-        let best = null, bestDist = Infinity;
-        for (const bead of brand.colors) {
-          const dist = colorDistance(rgb, bead.rgb);
-          if (dist < bestDist) { bestDist = dist; best = bead; }
+        const key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+        let best = matchCache.get(key);
+        if (!best) {
+          let bestDist = Infinity;
+          for (const bead of brand.colors) {
+            const dist = colorDistance(rgb, bead.rgb);
+            if (dist < bestDist) { bestDist = dist; best = bead; }
+          }
+          matchCache.set(key, best);
         }
+        directAssignments[i] = best.id;
         directCounts.set(best.id, (directCounts.get(best.id) || 0) + 1);
       }
+
+      if ((pixelArt || limit === 0) && !isMono && directCounts.size <= target) {
+        const palette = brand.colors.filter(bead => directCounts.has(bead.id));
+        paletteById = Object.fromEntries(palette.map(bead => [bead.id, bead]));
+        const assignments = new Array(imgData.width * imgData.height);
+        for (let i = 0; i < indices.length; i++) assignments[indices[i]] = directAssignments[i];
+        return { palette, assignments };
+      }
+
+      const km = kmeans(opaque, Math.min(target, opaque.length));
 
       let palette = km.centers.map((rgb, idx) => {
         let best = null, bestDist = Infinity;
@@ -547,8 +612,6 @@
         const best = nearestPaletteBead(rgb);
         assignments[indices[i]] = best.bead.id;
       }
-      cleanupIsolatedRegions(assignments, imgData.width, imgData.height, 12, realisticMode, colorDistance);
-      smoothScatteredPixels(assignments, imgData.width, imgData.height, 1);
       return { palette: palette.map(p => p.bead), assignments };
     }
 
@@ -767,13 +830,14 @@
         const gridWidth = Number(widthInput.value);
         widthLabel.textContent = gridWidth;
         const realisticMode = realisticModeInput.checked;
-        let imgData = fitImageToGrid(currentImage, gridWidth);
-        if (edgeEnhanceInput.checked) imgData = applyEdgeEnhancement(imgData);
+        const pixelArt = imageModeSelect.value === 'pixel' || (imageModeSelect.value === 'auto' && detectedPixelArt);
+        let imgData = fitImageToGrid(currentImage, gridWidth, pixelArt);
+        if (edgeEnhanceInput.checked && !pixelArt) imgData = applyEdgeEnhancement(imgData);
         const gridHeight = imgData.height;
         currentGridWidth = gridWidth;
         currentGridHeight = gridHeight;
-        gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${gridWidth * gridHeight}`;
-        const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode);
+        gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · ${pixelArt ? '像素图采样' : '照片采样'}`;
+        const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode, pixelArt);
         currentAssignments = converted.assignments;
         currentPalette = converted.palette;
         currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
@@ -795,6 +859,7 @@
       const img = new Image();
       img.onload = () => {
         currentImage = img;
+        detectedPixelArt = detectPixelArt(img);
         regenerate();
         URL.revokeObjectURL(url);
       };
@@ -829,7 +894,7 @@
       });
       regenerate();
     });
-    [brandSelect, paletteLimitSelect, quantModeSelect].forEach(el =>
+    [brandSelect, paletteLimitSelect, quantModeSelect, imageModeSelect].forEach(el =>
       el.addEventListener('change', () => regenerate())
     );
     [edgeEnhanceInput, realisticModeInput].forEach(el =>
