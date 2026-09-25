@@ -101,10 +101,15 @@
           <input id="edge-enhance" type="checkbox" class="cute-check">
           <span class="text-sm font-bold cute-text">边缘增强</span>
         </label>
+        <label class="flex items-center gap-2" title="只平滑相近颜色的轻微噪声，不删除高对比度的单颗豆">
+          <input id="reduce-noise" type="checkbox" class="cute-check" checked>
+          <span class="text-sm font-bold cute-text">减少杂色</span>
+        </label>
         <label class="flex items-center gap-2">
           <input id="realistic-mode" type="checkbox" class="cute-check" checked>
           <span class="text-sm font-bold cute-text">真实（肤色精准）</span>
         </label>
+        <p class="w-full text-xs cute-text">“减少杂色”只平滑相近颜色，不会自动删除明显的单颗豆；需要完全保留原色时可以关闭。</p>
       </div>
     </section>
 
@@ -152,6 +157,7 @@
     const imageModeSelect = document.getElementById('image-mode');
     const showCodesInput = document.getElementById('show-codes');
     const edgeEnhanceInput = document.getElementById('edge-enhance');
+    const reduceNoiseInput = document.getElementById('reduce-noise');
     const realisticModeInput = document.getElementById('realistic-mode');
     const controls = document.getElementById('controls');
     const result = document.getElementById('result');
@@ -327,15 +333,6 @@
 
     function fitImageToGrid(img, gridWidth, pixelArt = false) {
       const gridHeight = Math.max(1, Math.round(img.height / img.width * gridWidth));
-      if (pixelArt) {
-        const sampler = document.createElement('canvas');
-        sampler.width = gridWidth;
-        sampler.height = gridHeight;
-        const ctx = sampler.getContext('2d', { willReadFrequently: true });
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, 0, 0, gridWidth, gridHeight);
-        return ctx.getImageData(0, 0, gridWidth, gridHeight);
-      }
       const sampleFactor = 5;
       const sampleWidth = gridWidth * sampleFactor;
       const sampleHeight = gridHeight * sampleFactor;
@@ -343,8 +340,8 @@
       sampler.width = sampleWidth;
       sampler.height = sampleHeight;
       const sampleCtx = sampler.getContext('2d', { willReadFrequently: true });
-      sampleCtx.imageSmoothingEnabled = true;
-      sampleCtx.imageSmoothingQuality = 'high';
+      sampleCtx.imageSmoothingEnabled = !pixelArt;
+      if (!pixelArt) sampleCtx.imageSmoothingQuality = 'high';
       sampleCtx.drawImage(img, 0, 0, sampleWidth, sampleHeight);
       const sampled = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight);
 
@@ -386,6 +383,45 @@
         result.data[di + 3] = 255;
       }
       return result;
+    }
+
+    function stabilizeSampleColors(imgData, pixelArt) {
+      const { width, height, data } = imgData;
+      const output = new Uint8ClampedArray(data);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4;
+          if (data[index + 3] < 128) continue;
+          const chroma = Math.max(data[index], data[index + 1], data[index + 2])
+            - Math.min(data[index], data[index + 1], data[index + 2]);
+          const smoothTexture = pixelArt && chroma >= 50;
+          const radius = pixelArt ? 2 : 1;
+          const maxDistanceSquared = Math.pow(smoothTexture ? 85 : 32, 2);
+          let red = data[index], green = data[index + 1], blue = data[index + 2], count = 1;
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+              if (!dx && !dy) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+              const neighbor = (ny * width + nx) * 4;
+              if (data[neighbor + 3] < 128) continue;
+              const dr = data[index] - data[neighbor];
+              const dg = data[index + 1] - data[neighbor + 1];
+              const db = data[index + 2] - data[neighbor + 2];
+              if (dr * dr + dg * dg + db * db > maxDistanceSquared) continue;
+              red += data[neighbor];
+              green += data[neighbor + 1];
+              blue += data[neighbor + 2];
+              count++;
+            }
+          }
+          if (count < 3) continue;
+          output[index] = Math.round(red / count);
+          output[index + 1] = Math.round(green / count);
+          output[index + 2] = Math.round(blue / count);
+        }
+      }
+      return new ImageData(output, width, height);
     }
 
     function transparentPixel(d, i) {
@@ -742,6 +778,7 @@
         const realisticMode = realisticModeInput.checked;
         const pixelArt = imageModeSelect.value === 'pixel' || (imageModeSelect.value === 'auto' && detectedPixelArt);
         let imgData = fitImageToGrid(currentImage, gridWidth, pixelArt);
+        if (reduceNoiseInput.checked) imgData = stabilizeSampleColors(imgData, pixelArt);
         if (edgeEnhanceInput.checked && !pixelArt) imgData = applyEdgeEnhancement(imgData);
         const gridHeight = imgData.height;
         currentGridWidth = gridWidth;
@@ -823,7 +860,7 @@
     [brandSelect, paletteLimitSelect, quantModeSelect, imageModeSelect].forEach(el =>
       el.addEventListener('change', () => regenerate())
     );
-    [edgeEnhanceInput, realisticModeInput].forEach(el =>
+    [edgeEnhanceInput, reduceNoiseInput, realisticModeInput].forEach(el =>
       el.addEventListener('change', () => regenerate(true))
     );
     showCodesInput.addEventListener('change', () => {
