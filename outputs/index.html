@@ -836,12 +836,13 @@
         const gridHeight = imgData.height;
         currentGridWidth = gridWidth;
         currentGridHeight = gridHeight;
-        gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · ${pixelArt ? '像素图采样' : '照片采样'}`;
         const converted = buildPalette(imgData, brandSelect.value, Number(paletteLimitSelect.value), quantModeSelect.value, realisticMode, pixelArt);
         currentAssignments = converted.assignments;
         currentPalette = converted.palette;
         currentPalette.forEach(bead => { paletteById[bead.id] = bead; });
         const rows = countBeads(currentAssignments, gridWidth, gridHeight);
+        const totalBeads = rows.reduce((sum, row) => sum + row.count, 0);
+        gridSizeInfo.textContent = `${gridWidth} × ${gridHeight} 豆 · 总豆数 ${totalBeads} · ${pixelArt ? '像素图采样' : '照片采样'}`;
         render(imgData, gridWidth, gridHeight, brandSelect.value);
         renderPaletteList(rows);
         result.classList.remove('hidden');
