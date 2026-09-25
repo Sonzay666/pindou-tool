@@ -41,8 +41,8 @@
         <span class="section-index">01 / 设置图纸</span>
         <h2>调整尺寸与颜色</h2>
       </div>
-      <label class="block width-control md:col-span-2">
-        <span class="field-label">宽度 <span class="field-note">单位：豆</span></span>
+      <div class="block width-control md:col-span-2">
+        <label for="width" class="field-label">宽度 <span class="field-note">单位：豆</span></label>
         <div id="quick-sizes" class="mt-2 mb-3 flex flex-wrap gap-2">
           <button type="button" class="quick-size" data-width="16">16</button>
           <button type="button" class="quick-size" data-width="24">24</button>
@@ -58,7 +58,7 @@
           <div class="stat-card"><span>图纸尺寸</span><strong id="grid-dimensions">48 × —</strong><small>宽 × 高</small></div>
           <div class="stat-card"><span>采样方式</span><strong id="sampling-info">待生成</strong><small>可在下方切换</small></div>
         </div>
-      </label>
+      </div>
       <label class="block field">
         <span class="field-label">颜色品牌</span>
         <select id="brand" class="w-full cute-input text-sm"></select>
