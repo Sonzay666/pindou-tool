@@ -6,183 +6,19 @@
   <title>拼豆图转换器</title>
   <script src="tailwind.js"></script>
   <script src="brands.js"></script>
-  <style>
-    :root { --ink: #232636; --muted: #73798b; --line: #e9e8ef; --accent: #6754c9; --accent-soft: #f2effd; }
-    .tile { image-rendering: pixelated; }
-    body {
-      font-family: "Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-      color: var(--ink);
-      background-color: #f7f7fa;
-      background-image:
-        radial-gradient(circle at 0% 0%, rgba(211, 202, 250, .24) 0, transparent 32%),
-        radial-gradient(circle at 100% 15%, rgba(242, 204, 213, .18) 0, transparent 26%);
-    }
-    .cute-card {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 1.5rem;
-      box-shadow: 0 16px 50px -36px rgba(33, 31, 69, .32), 0 2px 8px rgba(33, 31, 69, .025);
-    }
-    .cute-title { color: var(--ink); }
-    .cute-text { color: var(--muted); }
-    .cute-button {
-      border-radius: .75rem;
-      border: 1px solid transparent;
-      padding: .7rem .95rem;
-      font-weight: 700;
-      color: #fff;
-      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
-    }
-    .cute-button:hover { transform: translateY(-2px); box-shadow: 0 9px 20px -12px rgba(59, 48, 121, .7); }
-    .cute-button:active { transform: translateY(0); }
-    .cute-button-primary { background: var(--accent); }
-    .cute-button-primary:hover { background: #5743bd; }
-    .cute-button-secondary { color: #4b4591; background: #f0edfb; border-color: #e5dff7; }
-    .cute-input {
-      border: 1px solid #dedee8;
-      border-radius: .75rem;
-      background-color: #fff;
-      color: var(--ink);
-      padding: .72rem .8rem;
-      min-height: 2.8rem;
-    }
-    .cute-input:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(103, 84, 201, .14);
-    }
-    .cute-check { accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
-    .cute-swatch {
-      width: 2.35rem;
-      height: 2.35rem;
-      border-radius: .65rem;
-      border: 1px solid rgba(0,0,0,.08);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.45);
-    }
-    .cute-drop {
-      border: 1.5px dashed #c8c0e9;
-      background: linear-gradient(135deg, #fff, #faf9ff);
-      transition: border-color .18s ease, background .18s ease, transform .18s ease;
-    }
-    .cute-drop:hover {
-      border-color: var(--accent);
-      background: #f8f6ff;
-      transform: translateY(-2px);
-    }
-    .quick-size {
-      border: 1px solid #e3e3eb;
-      background: #fff;
-      color: #666d7f;
-      border-radius: .6rem;
-      padding: .46rem .72rem;
-      font-size: .75rem;
-      font-weight: 700;
-      line-height: 1;
-      transition: all .16s ease;
-    }
-    .quick-size:hover {
-      border-color: #a99de1;
-      color: #4f409f;
-    }
-    .quick-size.active {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-      color: #4f409f;
-    }
-    .cute-progress { background: rgba(25, 24, 48, .45); z-index: 50; }
-    .hero { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding: 2.5rem 3rem; overflow: hidden; background: linear-gradient(120deg, #fff 52%, #f8f5ff); }
-    .hero-copy { position: relative; z-index: 1; }
-    .eyebrow, .section-index { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    .eyebrow span { margin: 0 .4rem; color: #b6accf; }
-    .hero h1 { margin-top: .9rem; color: var(--ink); font-size: clamp(2.1rem, 4vw, 3.55rem); font-weight: 850; letter-spacing: -.055em; line-height: 1.17; }
-    .hero h1 em { color: var(--accent); font-style: normal; }
-    .hero p { margin-top: 1rem; color: var(--muted); font-size: .98rem; line-height: 1.7; }
-    .hero-tags { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.25rem; }
-    .hero-tags span { padding: .35rem .7rem; border-radius: 999px; background: #f2f0fa; color: #635d7b; font-size: .73rem; font-weight: 700; }
-    .hero-art { flex: 0 0 204px; width: 204px; height: 204px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 22px; border-radius: 2rem; background: #eeeafa; transform: rotate(-9deg); box-shadow: 0 22px 40px -28px rgba(86, 71, 166, .52); }
-    .hero-art span { border-radius: 50%; background: #a8a0df; box-shadow: inset -5px -6px 0 rgba(50, 42, 117, .14), inset 4px 4px 0 rgba(255,255,255,.65), 0 3px 6px rgba(54,45,109,.12); }
-    .hero-art span:nth-child(4n+2), .hero-art span:nth-child(7) { background: #f5a5ad; }
-    .hero-art span:nth-child(4n+3), .hero-art span:nth-child(9) { background: #f4cf93; }
-    .hero-art span:nth-child(5n+4) { background: #97c5bc; }
-    .upload-panel { padding: 1.7rem 1rem; }
-    .upload-icon { display: grid; place-items: center; width: 2.7rem; height: 2.7rem; margin: 0 auto .7rem; border-radius: .85rem; background: var(--accent-soft); color: var(--accent); font-size: 1.7rem; line-height: 1; }
-    .upload-title { color: var(--ink); font-size: 1rem; font-weight: 750; }
-    .upload-panel p:last-of-type { font-size: .76rem; }
-    .section-heading { padding-bottom: .8rem; border-bottom: 1px solid var(--line); }
-    .section-heading h2, .result-heading h2, .panel-title { margin-top: .32rem; color: var(--ink); font-size: 1.28rem; font-weight: 800; letter-spacing: -.025em; }
-    .field-label { display: block; margin-bottom: .65rem; color: #353b4b; font-size: .84rem; font-weight: 750; }
-    .field-note { color: #9a9dad; font-size: .7rem; font-weight: 500; }
-    .field { min-width: 0; }
-    .field .cute-input { margin-top: .05rem; }
-    .width-control { min-width: 0; }
-    .range-row { display: flex; align-items: center; gap: .8rem; }
-    .range-row input { accent-color: var(--accent); }
-    .range-row strong { min-width: 2.8rem; padding: .25rem .4rem; border-radius: .5rem; background: var(--accent-soft); color: var(--accent); text-align: center; font-size: .86rem; }
-    .stat-grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: .55rem; margin-top: 1.05rem; }
-    .stat-card { min-width: 0; padding: .82rem .9rem; border: 1px solid #e8e8ef; border-radius: .9rem; background: #f8f8fb; }
-    .stat-card span, .stat-card small { display: block; color: #7c8290; font-size: .67rem; font-weight: 650; }
-    .stat-card strong { display: block; margin: .12rem 0 .05rem; color: var(--ink); font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 800; line-height: 1.2; white-space: nowrap; }
-    .stat-card-primary { border-color: #292943; background: #292943; box-shadow: 0 10px 20px -15px rgba(34, 30, 86, .75); }
-    .stat-card-primary span, .stat-card-primary small { color: #c4c1dc; }
-    .stat-card-primary strong { color: #fff; font-size: clamp(1.65rem, 3vw, 2.1rem); letter-spacing: -.05em; }
-    .options-row { padding-top: 1.1rem; border-top: 1px solid var(--line); }
-    .options-row label { color: #50596a; }
-    .result-heading { align-items: flex-end; }
-    .download-actions { justify-content: flex-end; }
-    #canvas-wrap { border: 1px solid #e8e7ee; background: #f8f8fb; }
-    #canvas { margin: 0 auto; }
-    .panel-title { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: 1rem; }
-    .panel-title span { padding: .25rem .55rem; border-radius: .5rem; background: var(--accent-soft); color: #5c4db0; font-size: .68rem; font-weight: 750; white-space: nowrap; }
-    .palette-item { display: flex; align-items: center; gap: .75rem; padding: .65rem .7rem; border: 1px solid #ededf2; border-radius: .9rem; background: #fff; }
-    .palette-item + .palette-item { margin-top: .5rem; }
-    .palette-item-name { min-width: 0; }
-    .palette-item-name strong { display: block; color: var(--ink); font-size: .84rem; }
-    .palette-item-name small { display: block; overflow: hidden; color: var(--muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
-    .palette-item-count { margin-left: auto; color: #34354e; font-size: .85rem; font-weight: 800; }
-    @media (max-width: 700px) {
-      .hero { padding: 1.75rem; }
-      .hero-art { display: none; }
-      .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .stat-card-primary { grid-column: 1 / -1; }
-      .download-actions { justify-content: flex-start; }
-    }
-    @media (max-width: 450px) {
-      .hero { padding: 1.4rem; }
-      .hero h1 { font-size: 2rem; }
-      .cute-button { flex: 1 1 auto; }
-      .stat-card { padding: .72rem; }
-    }
-    .cute-toast {
-      position: fixed;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%) scale(.92);
-      z-index: 60;
-      max-width: min(90vw, 32rem);
-      text-align: center;
-      padding: .7rem 1.2rem;
-      font-weight: 700;
-      color: var(--ink);
-      background: rgba(255, 255, 255, .95);
-      border: 1px solid #d9d2f2;
-      border-radius: 999px;
-      box-shadow: 0 10px 24px -14px rgba(69, 55, 136, .5);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .28s ease, transform .28s cubic-bezier(.2, .9, .3, 1.2);
-    }
-    .cute-toast.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-    .cute-toast.ok { border-color: #a99de1; }
-    .cute-toast.error { border-color: #e49595; color: #a13f4c; }
-  </style>
+  <link rel="stylesheet" href="studio.css">
 </head>
 <body class="min-h-screen">
   <main class="app-shell max-w-7xl mx-auto px-4 sm:px-6 py-8 md:py-12 space-y-6">
+    <div class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>BEAD / LAB <small>拼豆创作工作台</small></span></div>
+      <div class="topbar-status">本地引擎已就绪</div>
+    </div>
     <header class="hero cute-card">
       <div class="hero-copy">
-        <div class="eyebrow">BEAD PATTERN STUDIO <span>·</span> 本地离线制作</div>
-        <h1>把喜欢的画面<br><em>变成拼豆图纸</em></h1>
-        <p>导入图片，匹配真实拼豆色号，轻松完成图纸和备料清单。</p>
+        <div class="eyebrow">CREATIVE PIXEL STUDIO <span>·</span> 你的专属图纸实验室</div>
+        <h1>把灵感，<br><em>拼成现实。</em></h1>
+        <p>上传图片，匹配真实拼豆色号。让每个像素都成为作品的一部分。</p>
         <div class="hero-tags"><span>MARD 291 色</span><span>多品牌色库</span><span>图片仅在本机处理</span></div>
       </div>
       <div class="hero-art" aria-hidden="true">
@@ -193,7 +29,7 @@
       </div>
     </header>
 
-    <section id="input-area" class="cute-card cute-drop upload-panel text-center cursor-pointer">
+    <section id="input-area" class="cute-card cute-drop upload-panel text-center cursor-pointer" role="button" tabindex="0" aria-label="选择或拖入图片">
       <div class="upload-icon" aria-hidden="true">＋</div>
       <p class="upload-title">点击或拖拽图片到这里</p>
       <p class="cute-text mt-1">支持 JPG、PNG、WebP · 图片不会上传</p>
@@ -292,6 +128,7 @@
         <div id="palette-list" class="space-y-3 overflow-y-auto max-h-[70vh] pr-1"></div>
       </aside>
     </section>
+    <footer class="site-footer"><span>BEAD / LAB · MADE TO CREATE</span><span>图片仅在你的设备上处理</span></footer>
   </main>
 
   <div id="progress" class="fixed inset-0 cute-progress hidden items-center justify-center">
@@ -942,13 +779,26 @@
       img.src = url;
     }
 
-    inputArea.addEventListener('click', () => fileInput.click());
+    inputArea.addEventListener('click', event => {
+      if (event.target !== fileInput) fileInput.click();
+    });
+    inputArea.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
     fileInput.addEventListener('change', () => {
       if (fileInput.files.length) loadImage(fileInput.files[0]);
     });
-    inputArea.addEventListener('dragover', e => e.preventDefault());
+    inputArea.addEventListener('dragover', e => {
+      e.preventDefault();
+      inputArea.classList.add('dragging');
+    });
+    inputArea.addEventListener('dragleave', () => inputArea.classList.remove('dragging'));
     inputArea.addEventListener('drop', e => {
       e.preventDefault();
+      inputArea.classList.remove('dragging');
       if (e.dataTransfer.files.length) loadImage(e.dataTransfer.files[0]);
     });
     widthInput.addEventListener('input', () => {
